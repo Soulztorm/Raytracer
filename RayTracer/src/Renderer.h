@@ -37,6 +37,10 @@ public:
 	void SetLightPos(const glm::vec3& lightpos) { m_lightPos = lightpos; }
 	void SetLightPower(float power) { m_lightPower = power; }
 
+	void ResetFrameIndex() { m_frameindex = 1; }
+
+	bool m_accumulate = true;
+
 private:
 	struct HitData {
 		float Distance;
@@ -57,7 +61,11 @@ private:
 
 	std::shared_ptr<Walnut::Image> m_Image;
 	uint32_t* m_ImageData = nullptr;
+	glm::vec4* m_AccumulationBuffer = nullptr;
+	std::vector<uint32_t> m_ImageVerticalIter;
 
 	glm::vec3 m_lightPos = glm::vec3(0.0f);
 	float m_lightPower = 0.0f;
+
+	int m_frameindex = 1;
 };

@@ -6,6 +6,8 @@
 #include <glm/glm.hpp>
 
 #include <ppl.h>
+#include <execution>
+
 #include "Ray.h"
 
 #define DO_MT 1
@@ -27,22 +29,37 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 
 	float aspect = width / (float)height;
 
+	if (m_frameindex == 1)
+		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec4));
+
 #if DO_MT
-	concurrency::parallel_for(uint32_t(0), height, [&](uint32_t y)
+	//concurrency::parallel_for(uint32_t(0), height, [&](uint32_t y)
+	std::for_each(std::execution::par, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
 #else
 	for (uint32_t y = 0; y < height; y++)
 #endif
 	{
 		for (uint32_t x = 0; x < width; x++)
 		{
+			int pixelIndex = y * width + x;
 			glm::vec4 pixelColor = PerPixel(x, y);
 
-			m_ImageData[y * width + x] = Util::ColorFromVec4(pixelColor);
+			m_AccumulationBuffer[pixelIndex] += pixelColor;
+
+			glm::vec4 accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float) m_frameindex;
+			accumulatedColor.a = 1.0f;
+
+			m_ImageData[pixelIndex] = Util::ColorFromVec4(accumulatedColor);
 		}
 	}
 #if DO_MT
 	);
 #endif
+
+	if (m_accumulate)
+		m_frameindex++;
+	else
+		m_frameindex = 1;
 
 
 	m_Image->SetData(m_ImageData);
@@ -51,18 +68,27 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 void Renderer::OnResize(uint32_t width, uint32_t height)
 {
 	if (m_Image) {
-		if (m_Image->GetWidth() != width || m_Image->GetHeight() != height) {
-			m_Image->Resize(width, height);
-		}
+		if (m_Image->GetWidth() == width && m_Image->GetHeight() == height)
+			return;
+		
+		m_Image->Resize(width, height);
 	}
 	else {
 		m_Image = std::make_shared<Walnut::Image>(width, height, ImageFormat::RGBA);
-
-		delete[] m_ImageData;
-		m_ImageData = new uint32_t[width * height];
 	}
-}
 
+	delete[] m_ImageData;
+	m_ImageData = new uint32_t[width * height];
+
+	delete[] m_AccumulationBuffer;
+	m_AccumulationBuffer = new glm::vec4[width * height];
+
+	m_ImageVerticalIter.resize(height);
+	for (uint32_t i = 0; i < height; i++)
+		m_ImageVerticalIter[i] = i;
+
+	ResetFrameIndex();
+}
 
 glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	Ray ray;
@@ -84,24 +110,41 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		// no hit
 		if (hitdata.Distance < 0.0f) {
-			finalColor += ambientColor * contribution;
+			//finalColor += ambientColor * contribution;
 			break;
 		}
+
+		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0001f;
 
 		glm::vec3 lightVec = m_lightPos - hitdata.Position;
 		float lightDist = glm::length(lightVec);
 		glm::vec3 lightDir = lightVec / lightDist;
 
 		float lightIntensity = 1.0f / glm::pow(lightDist, m_lightPower);
+		float diffuse = std::max(glm::dot(lightDir, hitdata.Normal) * lightIntensity, 0.0f);
 
-		float diffuse = std::max(glm::dot(lightDir, hitdata.Normal), 0.0f);
+		// Shadow?
+		Ray shadowRay;
+		shadowRay.Origin = offsetPosition;
+		shadowRay.Direction = lightDir;
+		HitData shadowhit = TraceRay(shadowRay);
+		
+		// Is in shadow
+		if (shadowhit.Distance > 0.0f && shadowhit.Distance <= (lightDist - 0.0002f)) {
+			diffuse *= 0.1f;
+		}
 
-		glm::vec3 hitColor = m_activeScene->spheres[hitdata.ObjectIndex].Color;
+
+
+
+		glm::vec3 hitColor = m_activeScene->spheres[hitdata.ObjectIndex].Color ;
 
 		contribution *= hitColor;
-		finalColor += hitColor * contribution * diffuse;
+		finalColor += contribution * hitColor * diffuse;
 
-		ray.Origin = hitdata.Position + hitdata.Normal * 0.0001f;
+
+
+		ray.Origin = offsetPosition;
 		ray.Direction = glm::normalize(hitdata.Normal + Random::InUnitSphere());
 
 		//returnColor = glm::vec4(hitColor * diffuse, 1.0f);	
