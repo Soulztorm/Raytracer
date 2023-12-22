@@ -1,0 +1,63 @@
+#pragma once
+
+#include <memory>
+#include <vector>
+
+#include <Walnut/Image.h>
+
+#include <glm/glm.hpp>
+
+#include "Scene.h"
+#include "Camera.h"
+#include "Ray.h"
+
+namespace Util {
+	static uint32_t ColorFromVec4(glm::vec4 col) {
+		glm::vec4 col_clamped = glm::clamp(col, glm::vec4(0.0f), glm::vec4(1.0f));
+
+		uint8_t R = (uint8_t)(col_clamped.r * 255.0f);
+		uint8_t G = (uint8_t)(col_clamped.g * 255.0f);
+		uint8_t B = (uint8_t)(col_clamped.b * 255.0f);
+		uint8_t A = (uint8_t)(col_clamped.a * 255.0f);
+
+		return (A << 24) | (B << 16) | (G << 8) | R;
+	}
+}
+
+class Renderer {
+public:
+	Renderer();
+
+	void Render(const Scene& scene, const Camera& camera);
+	void OnResize(uint32_t width, uint32_t height);
+
+
+	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
+
+	void SetLightPos(const glm::vec3& lightpos) { m_lightPos = lightpos; }
+	void SetLightPower(float power) { m_lightPower = power; }
+
+private:
+	struct HitData {
+		float Distance;
+		glm::vec3 Position;
+		glm::vec3 Normal;
+
+		int ObjectIndex;
+	};
+
+	// Methods
+	glm::vec4 PerPixel(uint32_t x, uint32_t y);
+	HitData TraceRay(const Ray& ray);
+
+
+	// Members
+	const Camera* m_activeCamera = nullptr;
+	const Scene* m_activeScene = nullptr;
+
+	std::shared_ptr<Walnut::Image> m_Image;
+	uint32_t* m_ImageData = nullptr;
+
+	glm::vec3 m_lightPos = glm::vec3(0.0f);
+	float m_lightPower = 0.0f;
+};
