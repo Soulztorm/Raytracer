@@ -30,6 +30,11 @@ namespace Walnut {
 			return (float)s_Distribution(s_RandomEngine) / (float)std::numeric_limits<uint32_t>::max();
 		}
 
+		static float Float(float min, float max)
+		{
+			return Float() * (max - min) + min;
+		}
+
 		static glm::vec3 Vec3()
 		{
 			return glm::vec3(Float(), Float(), Float());

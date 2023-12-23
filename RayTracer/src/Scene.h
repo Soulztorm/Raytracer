@@ -22,7 +22,4 @@ struct Material {
 struct Scene {
 	std::vector<Sphere> spheres;
 	std::vector<Material> materials;
-
-	glm::vec3 lightPosition{ 0.0f, 9.5f, 0.0f };
-	float lightPower = 0.0f;
 };

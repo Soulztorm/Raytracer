@@ -13,24 +13,24 @@
 
 using namespace Walnut;
 
-class ExampleLayer : public Walnut::Layer
+class RaytracerLayer : public Walnut::Layer
 {
 public:
-	ExampleLayer() : 
+	RaytracerLayer() :
 		m_camera(80.0f, 0.1f, 100.0f)
 	{
 		// Materials
 		// Floor
 		{
 			Material& mat = m_scene.materials.emplace_back();
-			mat.Albedo = glm::vec3(0.3, 0.3, 0.3);
+			mat.Albedo = glm::vec3(0.8, 0.8, 0.8);
 			mat.Roughness = 1.0f;
 			mat.Metallic = 0.0f;
 		}
 		// Left wall
 		{
 			Material& mat = m_scene.materials.emplace_back();
-			mat.Albedo = glm::vec3(0.0, 1.0, 0.0);
+			mat.Albedo = glm::vec3(0.35, 1.0, 0.17);
 			mat.Roughness = 1.0f;
 			mat.Metallic = 1.0f;
 		}
@@ -46,15 +46,15 @@ public:
 		// Sphere mats
 		{
 			Material& mat = m_scene.materials.emplace_back();
-			mat.Albedo = { 0.0, 0.3, 1.0 };
-			mat.Roughness = 1.0f;
+			mat.Albedo = { 0.0, 0.5, 1.0 };
+			mat.Roughness = 0.9f;
 			mat.Metallic = 0.0f;
 		}
 
 		{
 			Material& mat = m_scene.materials.emplace_back();
-			mat.Albedo = glm::vec3(1.0, 1.0, 0.0);
-			mat.Roughness = 1.0f;
+			mat.Albedo = glm::vec3(1.0, 0.8, 0.0);
+			mat.Roughness = 0.9f;
 			mat.Metallic = 1.0f;
 		}
 
@@ -63,7 +63,7 @@ public:
 		{
 			Material& mat = m_scene.materials.emplace_back();
 			mat.Albedo = glm::vec3(1.0, 1.0, 1.0);
-			mat.Emission = 30.0f;
+			mat.Emission = 20.0f;
 		}
 
 		{
@@ -139,11 +139,6 @@ public:
 
 			sphere.Position = glm::vec3(0.0, 29.88, 0.0);
 		}
-
-
-		// Light position
-		m_scene.lightPosition = { 0.0, 9.0, 0.0 };
-
 	}
 
 	virtual void OnUpdate(float ts) override
@@ -269,22 +264,22 @@ private:
 Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 {
 	Walnut::ApplicationSpecification spec;
-	spec.Name = "Walnut Example";
+	spec.Name = "Raytracer go BRRRRRRR";
 	spec.Width = 1280;
 	spec.Height = 720;
 
 	Walnut::Application* app = new Walnut::Application(spec);
-	app->PushLayer<ExampleLayer>();
-	app->SetMenubarCallback([app]()
-	{
-		if (ImGui::BeginMenu("File"))
-		{
-			if (ImGui::MenuItem("Exit"))
-			{
-				app->Close();
-			}
-			ImGui::EndMenu();
-		}
-	});
+	app->PushLayer<RaytracerLayer>();
+	//app->SetMenubarCallback([app]()
+	//{
+	//	if (ImGui::BeginMenu("File"))
+	//	{
+	//		if (ImGui::MenuItem("Exit"))
+	//		{
+	//			app->Close();
+	//		}
+	//		ImGui::EndMenu();
+	//	}
+	//});
 	return app;
 }

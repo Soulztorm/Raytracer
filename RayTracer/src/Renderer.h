@@ -11,6 +11,8 @@
 #include "Camera.h"
 #include "Ray.h"
 
+float const Pi = std::atan(1.0f) * 4.0f;
+
 namespace Util {
 	static uint32_t ColorFromVec4(glm::vec4 col) {
 		glm::vec4 col_clamped = glm::clamp(col, glm::vec4(0.0f), glm::vec4(1.0f));
@@ -21,6 +23,25 @@ namespace Util {
 		uint8_t A = (uint8_t)(col_clamped.a * 255.0f);
 
 		return (A << 24) | (B << 16) | (G << 8) | R;
+	}
+
+	static glm::vec3 RandomHemisphere(glm::vec3 normal, float spread)
+	{
+		// Make an orthogonal basis whose third vector is along `direction'
+		glm::vec3 b3 = normalize(normal);
+		glm::vec3 different = (std::abs(b3.x) < 0.5f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+		glm::vec3 b1 = glm::normalize(glm::cross(b3, different));
+		glm::vec3 b2 = glm::cross(b1, b3);
+
+		// Pick (x,y,z) randomly around (0,0,1)
+		float z = Walnut::Random::Float(std::cos(spread * Pi), 1.0f);
+		float r = std::sqrt(1.0f - z * z);
+		float theta = Walnut::Random::Float(-Pi, +Pi);
+		float x = r * std::cos(theta);
+		float y = r * std::sin(theta);
+
+		// Construct the vector that has coordinates (x,y,z) in the basis formed by b1, b2, b3
+		return x * b1 + y * b2 + z * b3;
 	}
 }
 
@@ -59,6 +80,7 @@ private:
 
 	HitData Miss();
 	HitData ClosestHit(const Ray& ray, float distance, uint32_t hitIndex);
+
 
 
 	// Members

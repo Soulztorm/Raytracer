@@ -108,31 +108,9 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0002f;
 
-		glm::vec3 lightVec = m_activeScene->lightPosition - offsetPosition;
-		float lightDist = glm::length(lightVec);
-		glm::vec3 lightDir = lightVec / lightDist;
-
-		float lightIntensity = 1.0f / glm::pow(lightDist, m_activeScene->lightPower);
-		float diffuse = std::max(glm::dot(lightDir, hitdata.Normal), 0.0f);
-
-		// Shadow?
-		bool doShadows = false;
-		if (doShadows) {
-			Ray shadowRay;
-			shadowRay.Origin = offsetPosition;
-			shadowRay.Direction = lightDir;
-			HitData shadowhit = TraceRay(shadowRay);
-		
-			// Is in shadow
-			if (shadowhit.Distance > 0.0f && shadowhit.Distance < lightDist) {
-				contribution *= 0.5f;
-			}
-		}
-
 
 		Material mat = m_activeScene->materials[m_activeScene->spheres[hitdata.ObjectIndex].MaterialIndex];
 
-		glm::vec3 hitColor = mat.Albedo;
 
 		//finalColor += contribution * hitColor * diffuse;
 		contribution *= mat.Albedo;
@@ -140,7 +118,10 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 
 		glm::vec3 directionToSurface = offsetPosition - ray.Origin;
-		glm::vec3 reflectedVector = glm::reflect(directionToSurface, glm::normalize(hitdata.Normal + Random::InUnitSphere() * 0.9f * mat.Roughness));
+
+		glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
+		glm::vec3 reflectedVector = glm::reflect(directionToSurface, randomHemisphereVector);
+		//glm::vec3 reflectedVector = glm::reflect(directionToSurface, glm::normalize(hitdata.Normal + Random::InUnitSphere() * 0.9f * mat.Roughness));
 
 		ray.Origin = offsetPosition;
 		ray.Direction = glm::normalize(reflectedVector);
@@ -171,7 +152,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		float discriminant = b * b - 4.0f * a * c;
 
 		// hit
-		if (discriminant > 0.0f) {
+		if (discriminant >= 0.0f) {
 			float t = (-b - glm::sqrt(discriminant)) / dbl_a;
 
 			if (t > 0.0f && t < closestDist){
@@ -202,6 +183,8 @@ Renderer::HitData Renderer::ClosestHit(const Ray& ray, float distance, uint32_t 
 
 	return hitdata;
 }
+
+
 
 Renderer::HitData Renderer::Miss()
 {
