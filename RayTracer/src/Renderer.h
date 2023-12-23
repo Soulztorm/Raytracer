@@ -26,20 +26,21 @@ namespace Util {
 
 class Renderer {
 public:
+	struct Settings {
+		bool Accumulate = true;
+	};
+	Settings& GetSettings() { return m_settings; }
+
+	// Constructor
 	Renderer();
 
 	void Render(const Scene& scene, const Camera& camera);
 	void OnResize(uint32_t width, uint32_t height);
 
-
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
-
-	void SetLightPos(const glm::vec3& lightpos) { m_lightPos = lightpos; }
-	void SetLightPower(float power) { m_lightPower = power; }
 
 	void ResetFrameIndex() { m_frameindex = 1; }
 
-	bool m_accumulate = true;
 
 private:
 	struct HitData {
@@ -50,6 +51,7 @@ private:
 		int ObjectIndex;
 	};
 
+
 	// Methods
 	glm::vec4 PerPixel(uint32_t x, uint32_t y);
 	HitData TraceRay(const Ray& ray);
@@ -58,14 +60,12 @@ private:
 	// Members
 	const Camera* m_activeCamera = nullptr;
 	const Scene* m_activeScene = nullptr;
+	Settings m_settings = Settings();
 
 	std::shared_ptr<Walnut::Image> m_Image;
 	uint32_t* m_ImageData = nullptr;
 	glm::vec4* m_AccumulationBuffer = nullptr;
 	std::vector<uint32_t> m_ImageVerticalIter;
-
-	glm::vec3 m_lightPos = glm::vec3(0.0f);
-	float m_lightPower = 0.0f;
 
 	int m_frameindex = 1;
 };

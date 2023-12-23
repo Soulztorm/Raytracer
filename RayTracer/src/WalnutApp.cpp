@@ -9,27 +9,104 @@
 #include "Camera.h"
 #include "Scene.h"
 
+#include <glm/gtc/type_ptr.hpp>
+
 using namespace Walnut;
 
 class ExampleLayer : public Walnut::Layer
 {
 public:
 	ExampleLayer() : 
-		m_camera(60.0f, 0.1f, 100.0f)
+		m_camera(80.0f, 0.1f, 100.0f)
 	{
-		float maxSpread = 5.0f;
-		float minSize = 1.5f;
-		float maxSize = 10.0f;
-
-		for (size_t i = 0; i < 30; i++)
+		// Materials
+		// Floor
 		{
-			Sphere sphere;
-			sphere.Position = Random::Vec3(-maxSpread, maxSpread);
-			sphere.Radius = std::min(Random::Float() * maxSize, minSize);
-			sphere.Color = Random::Vec3();
-
-			m_scene.spheres.push_back(sphere);
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(0.3, 0.3, 0.3);
+			mat.Roughness = 1.0f;
+			mat.Metallic = 0.0f;
 		}
+		// Left wall
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(0.0, 1.0, 0.0);
+			mat.Roughness = 1.0f;
+			mat.Metallic = 1.0f;
+		}
+		// Right wall
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(1.0, 0.0, 0.0);
+			mat.Roughness = 1.0f;
+			mat.Metallic = 1.0f;
+		}
+
+
+
+
+		// Sphere mats
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = { 0.0, 0.3, 1.0 };
+			mat.Roughness = 1.0f;
+			mat.Metallic = 0.0f;
+		}
+
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(1.0, 1.0, 0.0);
+			mat.Roughness = 1.0f;
+			mat.Metallic = 1.0f;
+		}
+
+
+
+		// Floor
+		{
+			Sphere sphere; 
+			sphere.Radius = 1000.0;
+			sphere.MaterialIndex = 0;
+
+			sphere.Position = glm::vec3(0.0, -1000.0, 0.0);
+			m_scene.spheres.push_back(sphere);
+
+			sphere.Position = glm::vec3(0.0, 1010.0, 0.0);
+			m_scene.spheres.push_back(sphere);
+
+			sphere.Position = glm::vec3(0.0, 0.0, -1005.0);
+			m_scene.spheres.push_back(sphere);
+
+			sphere.Position = glm::vec3(-1005.0, 0.0, 0.0);
+			sphere.MaterialIndex = 1;
+			m_scene.spheres.push_back(sphere);
+
+			sphere.Position = glm::vec3(1005.0, 0.0, 0.0);
+			sphere.MaterialIndex = 2;
+			m_scene.spheres.push_back(sphere);
+
+		}
+
+		{
+			Sphere& sphere = m_scene.spheres.emplace_back();
+			sphere.Radius = 2.0f;
+			sphere.MaterialIndex = 3;
+
+			sphere.Position = glm::vec3(2.0, 2.0, -2.5);
+		}		
+		
+		{
+			Sphere& sphere = m_scene.spheres.emplace_back();
+			sphere.Radius = 2.0f;
+			sphere.MaterialIndex = 4;
+
+			sphere.Position = glm::vec3(-2.0, 2.0, 0.0);
+		}
+
+
+		// Light position
+		m_scene.lightPosition = { 0.0, 9.0, 0.0 };
+
 	}
 
 	virtual void OnUpdate(float ts) override
@@ -40,17 +117,56 @@ public:
 
 	virtual void OnUIRender() override
 	{
+		// Settings
 		ImGui::Begin("Settings");
 		ImGui::Text("Last render: %.3fms", m_lastRenderTime);
+		ImGui::Checkbox("Accumulate", &m_renderer.GetSettings().Accumulate);
 
-		ImGui::Checkbox("Accumulate", &m_accumulate);
+		ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
+		ImGui::SliderFloat("Light Power:", &m_scene.lightPower, -1.0f, 2.0f, "%.2f");
+		ImGui::End();
 
-		ImGui::SliderFloat3("Light Position:", &m_lightPos[0], -10.0f, 10.0f, "%.2f");
-		m_renderer.SetLightPos(glm::vec3(m_lightPos[0], m_lightPos[1], m_lightPos[2]));
-		//m_renderer.ResetFrameIndex();
+		// Materials
+		ImGui::Begin("Materials");
 
-		ImGui::SliderFloat("Light Power:", &m_lightPower, -1.0f, 2.0f, "%.2f");
-		m_renderer.SetLightPower(m_lightPower);
+		for (size_t i = 0; i < m_scene.materials.size(); i++)
+		{
+			ImGui::PushID((int)i);
+			ImGui::Text("Material %i", i);
+			ImGui::ColorEdit3("Albedo", glm::value_ptr(m_scene.materials[i].Albedo));
+			ImGui::DragFloat("Roughness", &m_scene.materials[i].Roughness, 0.01f, 0.0f, 1.0f);
+			ImGui::DragFloat("Metallic", &m_scene.materials[i].Metallic, 0.01f, 0.0f, 1.0f);
+			ImGui::PopID();
+			ImGui::Separator();
+			ImGui::Separator();
+		}
+
+		ImGui::End();
+
+		// Walls
+		ImGui::Begin("Walls");
+		for (size_t i = 0; i < 5; i++)
+		{
+			ImGui::PushID((int)i);
+			ImGui::SliderInt("Material Index", (int*)&m_scene.spheres[i].MaterialIndex, 0, (int)m_scene.materials.size() - 1);
+			ImGui::PopID();
+			ImGui::Separator();
+		}
+
+		ImGui::End();
+
+		// Spheres
+		ImGui::Begin("Spheres");
+		for (size_t i = 5; i < m_scene.spheres.size(); i++)
+		{
+			ImGui::PushID((int)i);
+			ImGui::DragFloat3("Position", glm::value_ptr(m_scene.spheres[i].Position), 0.1f);
+			ImGui::DragFloat("Radius", &m_scene.spheres[i].Radius, 0.01f, 0.1f, 5.0f);
+			ImGui::SliderInt("Material Index", (int*) & m_scene.spheres[i].MaterialIndex, 0, (int)m_scene.materials.size() - 1);
+			ImGui::PopID();
+			ImGui::Separator();
+			ImGui::Separator();
+		}
 
 		ImGui::End();
 
@@ -68,6 +184,10 @@ public:
 		ImGui::End();
 		ImGui::PopStyleVar();
 
+
+		//ImGui::ShowDemoWindow();
+
+		// Render every frame
 		Render();
 	}
 
@@ -77,8 +197,6 @@ public:
 		// resize if needed
 		m_renderer.OnResize(m_viewportWidth, m_viewportHeight);
 		m_camera.OnResize(m_viewportWidth, m_viewportHeight);
-
-		m_renderer.m_accumulate = m_accumulate;
 
 		// render
 		m_renderer.Render(m_scene, m_camera);
@@ -96,9 +214,6 @@ private:
 
 	// Gui vars
 	float m_lastRenderTime = 0.0f;
-	float m_lightPos[3] = { -1.0f, 0.0f, 2.0f };
-	float m_lightPower = 0.0f;
-	bool m_accumulate = true;
 };
 
 

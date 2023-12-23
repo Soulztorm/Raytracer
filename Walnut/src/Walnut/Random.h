@@ -11,8 +11,8 @@ namespace Walnut {
 	public:
 		static void Init()
 		{
-			//s_RandomEngine.seed(std::random_device()());
-			s_RandomEngine.seed(1337);
+			s_RandomEngine.seed(std::random_device()());
+			//s_RandomEngine.seed(1337);
 		}
 
 		static uint32_t UInt()
