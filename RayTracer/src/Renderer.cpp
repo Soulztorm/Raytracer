@@ -150,18 +150,19 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 Renderer::HitData Renderer::TraceRay(const Ray& ray)
 {
-	HitData hitdata;
-	hitdata.Distance = -1.0f;
-
 	float closestDist = FLT_MAX;
+	int closestObjectIndex = -1;
 
+	// Only dependant on ray direction
+	float a = glm::dot(ray.Direction, ray.Direction);
+
+	// Loop through scene to find closest hit (if any)
 	for (int i = 0; i < m_activeScene->spheres.size(); i++)
 	{
 		const Sphere& sphere = m_activeScene->spheres[i];
 
 		glm::vec3 rayOrigin = ray.Origin - sphere.Position;
 
-		float a = glm::dot(ray.Direction, ray.Direction);
 		float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
 		float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
 
@@ -174,17 +175,36 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 				continue;
 
 			closestDist = t;
-
-			glm::vec3 hitPoint = rayOrigin + ray.Direction * t;
-			glm::vec3 normal = glm::normalize(hitPoint);
-
-			// Set hit data
-			hitdata.Distance = t;
-			hitdata.Position = hitPoint + sphere.Position;
-			hitdata.Normal = normal;
-			hitdata.ObjectIndex = i;
+			closestObjectIndex = i;
 		}
 	}
+
+	if (closestObjectIndex < 0)
+		return Miss();
+
+	return ClosestHit(ray, closestDist, closestObjectIndex);
+}
+
+Renderer::HitData Renderer::ClosestHit(const Ray& ray, float distance, uint32_t hitIndex)
+{
+	HitData hitdata;
+
+	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
+	glm::vec3 normal = glm::normalize(hitPoint - m_activeScene->spheres[hitIndex].Position);
+
+	// Set hit data
+	hitdata.Distance = distance;
+	hitdata.Position = hitPoint;
+	hitdata.Normal = normal;
+	hitdata.ObjectIndex = hitIndex;
+
+	return hitdata;
+}
+
+Renderer::HitData Renderer::Miss()
+{
+	HitData hitdata;
+	hitdata.Distance = -1.0f;
 
 	return hitdata;
 }

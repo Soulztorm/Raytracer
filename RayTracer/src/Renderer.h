@@ -56,6 +56,9 @@ private:
 	glm::vec4 PerPixel(uint32_t x, uint32_t y);
 	HitData TraceRay(const Ray& ray);
 
+	HitData Miss();
+	HitData ClosestHit(const Ray& ray, float distance, uint32_t hitIndex);
+
 
 	// Members
 	const Camera* m_activeCamera = nullptr;
