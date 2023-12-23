@@ -95,7 +95,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	glm::vec3 contribution{ 1.0f };
 
 
-	for (size_t i = 0; i < 5; i++)
+	for (size_t i = 0; i < m_settings.Bounces; i++)
 	{
 		// Shoot ray into scene
 		HitData hitdata = TraceRay(ray);
@@ -106,7 +106,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 			break;
 		}
 
-		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0001f;
+		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0002f;
 
 		glm::vec3 lightVec = m_activeScene->lightPosition - offsetPosition;
 		float lightDist = glm::length(lightVec);
@@ -134,8 +134,9 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		glm::vec3 hitColor = mat.Albedo;
 
-		finalColor += contribution * hitColor * diffuse;
-		contribution *= 0.5f;
+		//finalColor += contribution * hitColor * diffuse;
+		contribution *= mat.Albedo;
+		finalColor += mat.Emission * contribution;
 
 
 		glm::vec3 directionToSurface = offsetPosition - ray.Origin;
@@ -155,6 +156,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 
 	// Only dependant on ray direction
 	float a = glm::dot(ray.Direction, ray.Direction);
+	float dbl_a = (2.0f * a);
 
 	// Loop through scene to find closest hit (if any)
 	for (int i = 0; i < m_activeScene->spheres.size(); i++)
@@ -170,12 +172,12 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 
 		// hit
 		if (discriminant > 0.0f) {
-			float t = (-b - glm::sqrt(discriminant)) / (2.0f * a);
-			if (t > closestDist || t < 0.0f)
-				continue;
+			float t = (-b - glm::sqrt(discriminant)) / dbl_a;
 
-			closestDist = t;
-			closestObjectIndex = i;
+			if (t > 0.0f && t < closestDist){
+				closestDist = t;
+				closestObjectIndex = i;
+			}
 		}
 	}
 

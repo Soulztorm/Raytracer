@@ -43,8 +43,6 @@ public:
 		}
 
 
-
-
 		// Sphere mats
 		{
 			Material& mat = m_scene.materials.emplace_back();
@@ -58,6 +56,21 @@ public:
 			mat.Albedo = glm::vec3(1.0, 1.0, 0.0);
 			mat.Roughness = 1.0f;
 			mat.Metallic = 1.0f;
+		}
+
+
+		// Light
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(1.0, 1.0, 1.0);
+			mat.Emission = 30.0f;
+		}
+
+		{
+			Material& mat = m_scene.materials.emplace_back();
+			mat.Albedo = glm::vec3(1.0, 1.0, 1.0);
+			mat.Emission = 0.0f;
+			mat.Roughness = 0.0f;
 		}
 
 
@@ -76,6 +89,12 @@ public:
 
 			sphere.Position = glm::vec3(0.0, 0.0, -1005.0);
 			m_scene.spheres.push_back(sphere);
+
+			// Front wall
+			if (1) {
+				sphere.Position = glm::vec3(0.0, 0.0, 1005.0);
+				m_scene.spheres.push_back(sphere);
+			}
 
 			sphere.Position = glm::vec3(-1005.0, 0.0, 0.0);
 			sphere.MaterialIndex = 1;
@@ -103,6 +122,24 @@ public:
 			sphere.Position = glm::vec3(-2.0, 2.0, 0.0);
 		}
 
+		{
+			Sphere& sphere = m_scene.spheres.emplace_back();
+			sphere.Radius = 1.0f;
+			sphere.MaterialIndex = 6;
+
+			sphere.Position = glm::vec3(1.0, 0.5, 1.0);
+		}
+
+
+		// Light
+		{
+			Sphere& sphere = m_scene.spheres.emplace_back();
+			sphere.Radius = 20.0f;
+			sphere.MaterialIndex = 5;
+
+			sphere.Position = glm::vec3(0.0, 29.88, 0.0);
+		}
+
 
 		// Light position
 		m_scene.lightPosition = { 0.0, 9.0, 0.0 };
@@ -121,9 +158,11 @@ public:
 		ImGui::Begin("Settings");
 		ImGui::Text("Last render: %.3fms", m_lastRenderTime);
 		ImGui::Checkbox("Accumulate", &m_renderer.GetSettings().Accumulate);
+		ImGui::DragInt("# Bounces", (int*) & m_renderer.GetSettings().Bounces,0.05f, 0);
 
-		ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
-		ImGui::SliderFloat("Light Power:", &m_scene.lightPower, -1.0f, 2.0f, "%.2f");
+
+		//ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
+		//ImGui::SliderFloat("Light Power:", &m_scene.lightPower, -1.0f, 2.0f, "%.2f");
 		ImGui::End();
 
 		// Materials
@@ -134,6 +173,7 @@ public:
 			ImGui::PushID((int)i);
 			ImGui::Text("Material %i", i);
 			ImGui::ColorEdit3("Albedo", glm::value_ptr(m_scene.materials[i].Albedo));
+			ImGui::DragFloat("Emission", &m_scene.materials[i].Emission, 0.01f, 0.0f);
 			ImGui::DragFloat("Roughness", &m_scene.materials[i].Roughness, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Metallic", &m_scene.materials[i].Metallic, 0.01f, 0.0f, 1.0f);
 			ImGui::PopID();
@@ -145,13 +185,14 @@ public:
 
 		// Walls
 		ImGui::Begin("Walls");
-		for (size_t i = 0; i < 5; i++)
+		for (size_t i = 0; i < 6; i++)
 		{
 			ImGui::PushID((int)i);
 			ImGui::SliderInt("Material Index", (int*)&m_scene.spheres[i].MaterialIndex, 0, (int)m_scene.materials.size() - 1);
 			ImGui::PopID();
 			ImGui::Separator();
 		}
+		
 
 		ImGui::End();
 

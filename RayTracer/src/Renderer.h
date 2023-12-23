@@ -28,6 +28,7 @@ class Renderer {
 public:
 	struct Settings {
 		bool Accumulate = true;
+		uint32_t Bounces = 5;
 	};
 	Settings& GetSettings() { return m_settings; }
 
