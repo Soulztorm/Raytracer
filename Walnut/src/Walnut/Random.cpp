@@ -2,7 +2,7 @@
 
 namespace Walnut {
 
-	thread_local std::mt19937 Random::s_RandomEngine;
-	std::uniform_int_distribution<std::mt19937::result_type> Random::s_Distribution;
+	thread_local RNG Random::s_RandomEngine;
+	std::uniform_int_distribution<RNG::result_type> Random::s_Distribution;
 
 }

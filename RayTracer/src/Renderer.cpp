@@ -124,7 +124,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 		//glm::vec3 reflectedVector = glm::reflect(directionToSurface, glm::normalize(hitdata.Normal + Random::InUnitSphere() * 0.9f * mat.Roughness));
 
 		ray.Origin = offsetPosition;
-		ray.Direction = glm::normalize(reflectedVector);
+		ray.Direction = (reflectedVector);
 	}
 
 	return glm::vec4(finalColor, 1.0f);

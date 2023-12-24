@@ -5,12 +5,12 @@ project "Walnut"
    targetdir "bin/%{cfg.buildcfg}"
    staticruntime "off"
 
-   files { "src/**.h", "src/**.cpp" }
+   files { "src/**.h", "src/**.cpp", "src/**.hpp" }
 
    includedirs
    {
       "src",
-
+      
       "../vendor/imgui",
       "../vendor/glfw/include",
       "../vendor/stb_image",

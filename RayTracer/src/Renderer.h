@@ -25,13 +25,12 @@ namespace Util {
 		return (A << 24) | (B << 16) | (G << 8) | R;
 	}
 
-	static glm::vec3 RandomHemisphere(glm::vec3 normal, float spread)
+	static glm::vec3 RandomHemisphere(const glm::vec3& normal, float spread)
 	{
 		// Make an orthogonal basis whose third vector is along `direction'
-		glm::vec3 b3 = normalize(normal);
-		glm::vec3 different = (std::abs(b3.x) < 0.5f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-		glm::vec3 b1 = glm::normalize(glm::cross(b3, different));
-		glm::vec3 b2 = glm::cross(b1, b3);
+		glm::vec3 different = (std::abs(normal.x) < 0.5f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+		glm::vec3 b1 = (glm::cross(normal, different));
+		glm::vec3 b2 = glm::cross(b1, normal);
 
 		// Pick (x,y,z) randomly around (0,0,1)
 		float z = Walnut::Random::Float(std::cos(spread * Pi), 1.0f);
@@ -41,7 +40,7 @@ namespace Util {
 		float y = r * std::sin(theta);
 
 		// Construct the vector that has coordinates (x,y,z) in the basis formed by b1, b2, b3
-		return x * b1 + y * b2 + z * b3;
+		return x * b1 + y * b2 + z * normal;
 	}
 }
 

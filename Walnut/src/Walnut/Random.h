@@ -4,6 +4,11 @@
 
 #include <glm/glm.hpp>
 
+#include "pcg_random.hpp"
+
+#define RNG pcg32
+//#define RNG std::mt19937
+
 namespace Walnut {
 
 	class Random
@@ -11,8 +16,9 @@ namespace Walnut {
 	public:
 		static void Init()
 		{
-			s_RandomEngine.seed(std::random_device()());
-			//s_RandomEngine.seed(1337);
+			//pcg_extras::seed_seq_from<std::random_device> seed_source;
+			//s_RandomEngine.seed(seed_source);
+			s_RandomEngine.seed(1337);
 		}
 
 		static uint32_t UInt()
@@ -50,8 +56,8 @@ namespace Walnut {
 			return glm::normalize(Vec3(-1.0f, 1.0f));
 		}
 	private:
-		static thread_local std::mt19937 s_RandomEngine;
-		static std::uniform_int_distribution<std::mt19937::result_type> s_Distribution;
+		static thread_local RNG s_RandomEngine;
+		static std::uniform_int_distribution<RNG::result_type> s_Distribution;
 	};
 
 }
