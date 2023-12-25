@@ -47,8 +47,9 @@ namespace Util {
 class Renderer {
 public:
 	struct Settings {
+		bool Render = true;
 		bool Accumulate = true;
-		uint32_t Bounces = 2;
+		uint32_t Bounces = 5;
 	};
 	Settings& GetSettings() { return m_settings; }
 
@@ -79,7 +80,7 @@ private:
 
 	HitData Miss();
 	HitData ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex);
-	HitData ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex);
+	HitData ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v);
 
 	bool IntersectRayTriangle(const Ray& ray, const Triangle& triangle, float& t);
 	bool IntersectRayTriangle2(const Ray& ray, const Triangle& triangle, float& t);

@@ -133,56 +133,75 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 
 	float closestDistTriangles = FLT_MAX;
 	int closestTriangleIndex = -1;
-
+	float closestTriangle_u = 0.0f;
+	float closestTriangle_v = 0.0f;
 
 
 
 
 	// Sphere intersections
 	// Only dependant on ray direction
-	float a = glm::dot(ray.Direction, ray.Direction);
-	float dbl_a = (2.0f * a);
+	//float a = glm::dot(ray.Direction, ray.Direction);
+	//float dbl_a = (2.0f * a);
 
 	// Loop through scene to find closest hit (if any)
-	for (int i = 0; i < m_activeScene->spheres.size(); i++)
-	{
-		const Sphere& sphere = m_activeScene->spheres[i];
+	//for (int i = 0; i < m_activeScene->spheres.size(); i++)
+	//{
+	//	const Sphere& sphere = m_activeScene->spheres[i];
 
-		glm::vec3 rayOrigin = ray.Origin - sphere.Position;
+	//	glm::vec3 rayOrigin = ray.Origin - sphere.Position;
 
-		float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
-		float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
+	//	float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
+	//	float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
 
-		float discriminant = b * b - 4.0f * a * c;
+	//	float discriminant = b * b - 4.0f * a * c;
 
-		// hit
-		if (discriminant >= 0.0f) {
-			float t = (-b - glm::sqrt(discriminant)) / dbl_a;
+	//	// hit
+	//	if (discriminant >= 0.0f) {
+	//		float t = (-b - glm::sqrt(discriminant)) / dbl_a;
 
-			if (t > 0.0f && t < closestDistSpheres){
-				closestDistSpheres = t;
-				closestSphereIndex = i;
-			}
-		}
-	}
+	//		if (t > 0.0f && t < closestDistSpheres){
+	//			closestDistSpheres = t;
+	//			closestSphereIndex = i;
+	//		}
+	//	}
+	//}
 
 
 
 
 	// Triangle intersections
-	for (int i = 0; i < m_activeScene->triangles.size(); i++)
-	{
-		const Triangle& triangle = m_activeScene->triangles[i];
-
+	if (m_activeScene->kd_tree) {
+		// We hit a triangle
 		float t = 0.0f;
+		float u = 0.0f;
+		float v = 0.0f;
 
-		if (IntersectRayTriangle2(ray, triangle, t)) {
-			if (t < closestDistTriangles) {
-				closestDistTriangles = t;
-				closestTriangleIndex = i;
-			}
+		uint32_t hitIndex = 0;
+		if (m_activeScene->kd_tree->intersect(ray.Origin, ray.Direction, t, hitIndex, u, v)) {
+			closestDistTriangles = t;
+			closestTriangleIndex = hitIndex;
+			closestTriangle_u = u;
+			closestTriangle_v = v;
 		}
+		
 	}
+	//else {
+	//	for (int i = 0; i < m_activeScene->triangles.size(); i++)
+	//	{
+	//		const Triangle& triangle = m_activeScene->triangles[i];
+
+	//		float t = 0.0f;
+
+	//		if (IntersectRayTriangle2(ray, triangle, t)) {
+	//			if (t < closestDistTriangles) {
+	//				closestDistTriangles = t;
+	//				closestTriangleIndex = i;
+	//			}
+	//		}
+	//	}
+	//}
+
 
 
 
@@ -195,7 +214,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		return ClosestHitSphere(ray, closestDistSpheres, closestSphereIndex);
 
 	// triangle closer
-	return ClosestHitTriangle(ray, closestDistTriangles, closestTriangleIndex);
+	return ClosestHitTriangle(ray, closestDistTriangles, closestTriangleIndex, closestTriangle_u, closestTriangle_v);
 }
 
 Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex)
@@ -214,7 +233,7 @@ Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uin
 	return hitdata;
 }
 
-Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex)
+Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v)
 {
 	HitData hitdata;
 
@@ -223,7 +242,15 @@ Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, u
 	// Set hit data
 	hitdata.Distance = distance;
 	hitdata.Position = hitPoint;
-	hitdata.Normal = m_activeScene->triangles[objectIndex].Normal;
+
+	// (1-u-v) * p0 + u * p1 + v * p2
+
+	glm::vec3 nrm = (1.0f - u - v) * m_activeScene->triangles[objectIndex].Normals[0] + u * m_activeScene->triangles[objectIndex].Normals[1] + v * m_activeScene->triangles[objectIndex].Normals[2];
+	hitdata.Normal = glm::normalize(nrm);
+	
+	//hitdata.Normal = m_activeScene->triangles[objectIndex].Normal;
+
+
 	hitdata.MaterialIndex = m_activeScene->triangles[objectIndex].MaterialIndex;
 
 	return hitdata;
