@@ -7,3 +7,7 @@ bin-int
 /Walnut/*.vcxproj
 /Walnut/*.vcxproj.filters
 /Walnut/*.vcxproj.user
+/RayTracer/*.vcxproj
+/RayTracer/*.vcxproj.filters
+/RayTracer/*.vcxproj.user
+/Assets
