@@ -48,7 +48,7 @@ class Renderer {
 public:
 	struct Settings {
 		bool Accumulate = true;
-		uint32_t Bounces = 5;
+		uint32_t Bounces = 2;
 	};
 	Settings& GetSettings() { return m_settings; }
 
@@ -69,7 +69,7 @@ private:
 		glm::vec3 Position;
 		glm::vec3 Normal;
 
-		int ObjectIndex;
+		int MaterialIndex;
 	};
 
 
@@ -78,7 +78,11 @@ private:
 	HitData TraceRay(const Ray& ray);
 
 	HitData Miss();
-	HitData ClosestHit(const Ray& ray, float distance, uint32_t hitIndex);
+	HitData ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex);
+	HitData ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex);
+
+	bool IntersectRayTriangle(const Ray& ray, const Triangle& triangle, float& t);
+	bool IntersectRayTriangle2(const Ray& ray, const Triangle& triangle, float& t);
 
 
 

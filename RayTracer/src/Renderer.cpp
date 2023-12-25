@@ -12,7 +12,6 @@
 
 
 using namespace Walnut;
-using namespace glm;
 
 Renderer::Renderer()
 {
@@ -88,9 +87,6 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	ray.Direction = m_activeCamera->GetRayDirections()[y * m_Image->GetWidth() + x];
 
 
-
-	glm::vec3 ambientColor(0.0f, 0.0f, 0.0f);
-
 	glm::vec3 finalColor{ 0.0f };
 	glm::vec3 contribution{ 1.0f };
 
@@ -109,7 +105,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0002f;
 
 
-		Material mat = m_activeScene->materials[m_activeScene->spheres[hitdata.ObjectIndex].MaterialIndex];
+		Material mat = m_activeScene->materials[hitdata.MaterialIndex];
 
 
 		//finalColor += contribution * hitColor * diffuse;
@@ -132,9 +128,17 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 Renderer::HitData Renderer::TraceRay(const Ray& ray)
 {
-	float closestDist = FLT_MAX;
-	int closestObjectIndex = -1;
+	float closestDistSpheres = FLT_MAX;
+	int closestSphereIndex = -1;
 
+	float closestDistTriangles = FLT_MAX;
+	int closestTriangleIndex = -1;
+
+
+
+
+
+	// Sphere intersections
 	// Only dependant on ray direction
 	float a = glm::dot(ray.Direction, ray.Direction);
 	float dbl_a = (2.0f * a);
@@ -155,31 +159,72 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		if (discriminant >= 0.0f) {
 			float t = (-b - glm::sqrt(discriminant)) / dbl_a;
 
-			if (t > 0.0f && t < closestDist){
-				closestDist = t;
-				closestObjectIndex = i;
+			if (t > 0.0f && t < closestDistSpheres){
+				closestDistSpheres = t;
+				closestSphereIndex = i;
 			}
 		}
 	}
 
-	if (closestObjectIndex < 0)
+
+
+
+	// Triangle intersections
+	for (int i = 0; i < m_activeScene->triangles.size(); i++)
+	{
+		const Triangle& triangle = m_activeScene->triangles[i];
+
+		float t = 0.0f;
+
+		if (IntersectRayTriangle2(ray, triangle, t)) {
+			if (t < closestDistTriangles) {
+				closestDistTriangles = t;
+				closestTriangleIndex = i;
+			}
+		}
+	}
+
+
+
+
+	if (closestSphereIndex < 0 && closestTriangleIndex < 0)
 		return Miss();
 
-	return ClosestHit(ray, closestDist, closestObjectIndex);
+	// Sphere is closer
+	if (closestDistSpheres < closestDistTriangles)
+		return ClosestHitSphere(ray, closestDistSpheres, closestSphereIndex);
+
+	// triangle closer
+	return ClosestHitTriangle(ray, closestDistTriangles, closestTriangleIndex);
 }
 
-Renderer::HitData Renderer::ClosestHit(const Ray& ray, float distance, uint32_t hitIndex)
+Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex)
 {
 	HitData hitdata;
 
 	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
-	glm::vec3 normal = glm::normalize(hitPoint - m_activeScene->spheres[hitIndex].Position);
+	glm::vec3 normal = glm::normalize(hitPoint - m_activeScene->spheres[objectIndex].Position);
 
 	// Set hit data
 	hitdata.Distance = distance;
 	hitdata.Position = hitPoint;
 	hitdata.Normal = normal;
-	hitdata.ObjectIndex = hitIndex;
+	hitdata.MaterialIndex = m_activeScene->spheres[objectIndex].MaterialIndex;
+
+	return hitdata;
+}
+
+Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex)
+{
+	HitData hitdata;
+
+	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
+
+	// Set hit data
+	hitdata.Distance = distance;
+	hitdata.Position = hitPoint;
+	hitdata.Normal = m_activeScene->triangles[objectIndex].Normal;
+	hitdata.MaterialIndex = m_activeScene->triangles[objectIndex].MaterialIndex;
 
 	return hitdata;
 }
@@ -192,4 +237,105 @@ Renderer::HitData Renderer::Miss()
 	hitdata.Distance = -1.0f;
 
 	return hitdata;
+}
+
+
+
+
+bool Renderer::IntersectRayTriangle(const Ray& ray, const Triangle& triangle, float& t)
+{
+	const glm::vec3& v0 = triangle.Vertices[0];
+	const glm::vec3& v1 = triangle.Vertices[1];
+	const glm::vec3& v2 = triangle.Vertices[2];
+
+	// compute the plane's normal
+	glm::vec3 v0v1 = v1 - v0;
+	glm::vec3 v0v2 = v2 - v0;
+	// no need to normalize
+	glm::vec3 N = glm::cross(v0v1, v0v2); // N
+	float area2 = (float) N.length();
+
+	// Step 1: finding P
+
+	// check if the ray and plane are parallel.
+	float NdotRayDirection = glm::dot(N, ray.Direction);
+	if (fabs(NdotRayDirection) < 0.00001f) // almost 0
+		return false; // they are parallel, so they don't intersect! 
+
+	// compute d parameter using equation 2
+	float d = -glm::dot(N, v0);
+
+	// compute t (equation 3)
+	t = -(glm::dot(N, ray.Origin) + d) / NdotRayDirection;
+
+	// check if the triangle is behind the ray
+	if (t < 0) return false; // the triangle is behind
+
+	// compute the intersection point using equation 1
+	glm::vec3 P = ray.Origin + t * ray.Direction;
+
+	// Step 2: inside-outside test
+	glm::vec3 C; // vector perpendicular to triangle's plane
+
+	// edge 0
+	glm::vec3 edge0 = v1 - v0;
+	glm::vec3 vp0 = P - v0;
+	C = glm::cross(edge0, vp0);
+	if (glm::dot(N, C) < 0.0) return false; // P is on the right side
+
+	// edge 1
+	glm::vec3 edge1 = v2 - v1;
+	glm::vec3 vp1 = P - v1;
+	C = glm::cross(edge1, vp1);
+	if (glm::dot(N, C) < 0.0)  return false; // P is on the right side
+
+	// edge 2
+	glm::vec3 edge2 = v0 - v2;
+	glm::vec3 vp2 = P - v2;
+	C = glm::cross(edge2, vp2);
+	if (glm::dot(N, C) < 0.0) return false; // P is on the right side;
+
+	return true; // this ray hits the triangle
+}
+
+bool Renderer::IntersectRayTriangle2(const Ray& ray, const Triangle& triangle, float& t)
+{	
+	constexpr float epsilon = std::numeric_limits<float>::epsilon();
+
+	const glm::vec3& v0 = triangle.Vertices[0];
+	const glm::vec3& v1 = triangle.Vertices[1];
+	const glm::vec3& v2 = triangle.Vertices[2];
+
+	glm::vec3 edge1 = v1 - v0;
+	glm::vec3 edge2 = v2 - v0;
+	glm::vec3 ray_cross_e2 = glm::cross(ray.Direction, edge2);
+	float det = glm::dot(edge1, ray_cross_e2);
+
+	if (det > -epsilon && det < epsilon)
+		return false;    // This ray is parallel to this triangle.
+
+	float inv_det = 1.0f / det;
+	glm::vec3 s = ray.Origin - v0;
+	float u = inv_det * glm::dot(s, ray_cross_e2);
+
+	if (u < 0 || u > 1)
+		return false;
+
+	glm::vec3 ray_cross_e1 = glm::cross(s, edge1);
+	float v = inv_det * glm::dot(ray.Direction, ray_cross_e1);
+
+	if (v < 0 || u + v > 1)
+		return false;
+
+	// At this stage we can compute t to find out where the intersection point is on the line.
+	float t0 = inv_det * glm::dot(edge2, ray_cross_e1);
+
+	if (t0 > epsilon) // ray intersection
+	{
+		t = t0;
+		return true;
+	}
+	else // This means that there is a line intersection but not a ray intersection.
+		return false;
+	
 }

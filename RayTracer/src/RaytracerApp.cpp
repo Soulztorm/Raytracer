@@ -11,6 +11,9 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 using namespace Walnut;
 
 class RaytracerLayer : public Walnut::Layer
@@ -74,60 +77,62 @@ public:
 		}
 
 
+		if (0) {
+			// Floor
+			{
+				Sphere sphere; 
+				sphere.Radius = 1000.0;
+				sphere.MaterialIndex = 0;
 
-		// Floor
-		{
-			Sphere sphere; 
-			sphere.Radius = 1000.0;
-			sphere.MaterialIndex = 0;
-
-			sphere.Position = glm::vec3(0.0, -1000.0, 0.0);
-			m_scene.spheres.push_back(sphere);
-
-			sphere.Position = glm::vec3(0.0, 1010.0, 0.0);
-			m_scene.spheres.push_back(sphere);
-
-			sphere.Position = glm::vec3(0.0, 0.0, -1005.0);
-			m_scene.spheres.push_back(sphere);
-
-			// Front wall
-			if (1) {
-				sphere.Position = glm::vec3(0.0, 0.0, 1005.0);
+				sphere.Position = glm::vec3(0.0, -1000.0, 0.0);
 				m_scene.spheres.push_back(sphere);
+
+				sphere.Position = glm::vec3(0.0, 1010.0, 0.0);
+				m_scene.spheres.push_back(sphere);
+
+				sphere.Position = glm::vec3(0.0, 0.0, -1005.0);
+				m_scene.spheres.push_back(sphere);
+
+				// Front wall
+				if (1) {
+					sphere.Position = glm::vec3(0.0, 0.0, 1005.0);
+					m_scene.spheres.push_back(sphere);
+				}
+
+				sphere.Position = glm::vec3(-1005.0, 0.0, 0.0);
+				sphere.MaterialIndex = 1;
+				m_scene.spheres.push_back(sphere);
+
+				sphere.Position = glm::vec3(1005.0, 0.0, 0.0);
+				sphere.MaterialIndex = 2;
+				m_scene.spheres.push_back(sphere);
+
 			}
 
-			sphere.Position = glm::vec3(-1005.0, 0.0, 0.0);
-			sphere.MaterialIndex = 1;
-			m_scene.spheres.push_back(sphere);
 
-			sphere.Position = glm::vec3(1005.0, 0.0, 0.0);
-			sphere.MaterialIndex = 2;
-			m_scene.spheres.push_back(sphere);
+			{
+				Sphere& sphere = m_scene.spheres.emplace_back();
+				sphere.Radius = 2.0f;
+				sphere.MaterialIndex = 3;
 
-		}
-
-		{
-			Sphere& sphere = m_scene.spheres.emplace_back();
-			sphere.Radius = 2.0f;
-			sphere.MaterialIndex = 3;
-
-			sphere.Position = glm::vec3(2.0, 2.0, -2.5);
-		}		
+				sphere.Position = glm::vec3(2.0, 2.0, -2.5);
+			}		
 		
-		{
-			Sphere& sphere = m_scene.spheres.emplace_back();
-			sphere.Radius = 2.0f;
-			sphere.MaterialIndex = 4;
+			{
+				Sphere& sphere = m_scene.spheres.emplace_back();
+				sphere.Radius = 2.0f;
+				sphere.MaterialIndex = 4;
 
-			sphere.Position = glm::vec3(-2.0, 2.0, 0.0);
-		}
+				sphere.Position = glm::vec3(-2.0, 2.0, 0.0);
+			}
 
-		{
-			Sphere& sphere = m_scene.spheres.emplace_back();
-			sphere.Radius = 1.0f;
-			sphere.MaterialIndex = 6;
+			{
+				Sphere& sphere = m_scene.spheres.emplace_back();
+				sphere.Radius = 1.0f;
+				sphere.MaterialIndex = 6;
 
-			sphere.Position = glm::vec3(1.0, 0.5, 1.0);
+				sphere.Position = glm::vec3(1.0, 0.5, 1.0);
+			}
 		}
 
 
@@ -139,6 +144,95 @@ public:
 
 			sphere.Position = glm::vec3(0.0, 29.88, 0.0);
 		}
+
+
+
+		
+
+		// Load bunny
+		//if (m_objLoader.LoadFile("../Assets/cornell-box/CornellBox-Sphere.obj")) {
+
+		tinyobj::ObjReader Reader;
+		tinyobj::ObjReaderConfig config;
+		config.triangulate = true;
+
+		if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Sphere.obj", config)) {
+			auto& attrib = Reader.GetAttrib();
+			auto& shapes = Reader.GetShapes();
+			auto& materials = Reader.GetMaterials();
+
+			// Loop over shapes
+			for (size_t s = 0; s < shapes.size(); s++) {
+				// Loop over faces(polygon)
+				size_t index_offset = 0;
+				for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+					size_t fv = size_t(shapes[s].mesh.num_face_vertices[f]);
+					Triangle tri;
+					glm::vec3 avg_normal{ 0.0f };
+
+					// Loop over vertices in the face.
+					for (size_t v = 0; v < fv; v++) {
+						// access to vertex
+						tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+						tinyobj::real_t vx = attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+						tinyobj::real_t vy = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+						tinyobj::real_t vz = attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+
+						float scale = 7.0f;
+						tri.Vertices.push_back(glm::vec3(vx, vy, vz) * scale);
+
+						// Check if `normal_index` is zero or positive. negative = no normal data
+						if (idx.normal_index >= 0) {
+							tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
+							tinyobj::real_t ny = attrib.normals[3 * size_t(idx.normal_index) + 1];
+							tinyobj::real_t nz = attrib.normals[3 * size_t(idx.normal_index) + 2];
+
+							avg_normal += glm::vec3(nx, ny, nz);
+						}
+
+						// Check if `texcoord_index` is zero or positive. negative = no texcoord data
+						if (idx.texcoord_index >= 0) {
+							tinyobj::real_t tx = attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
+							tinyobj::real_t ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+						}
+
+						// Optional: vertex colors
+						// tinyobj::real_t red   = attrib.colors[3*size_t(idx.vertex_index)+0];
+						// tinyobj::real_t green = attrib.colors[3*size_t(idx.vertex_index)+1];
+						// tinyobj::real_t blue  = attrib.colors[3*size_t(idx.vertex_index)+2];
+					}
+
+					tri.Normal = glm::normalize(avg_normal);
+
+					tri.MaterialIndex = 0;
+					m_scene.triangles.push_back(tri);
+
+
+					index_offset += fv;
+
+					// per-face material
+					//shapes[s].mesh.material_ids[f];
+				}
+			}
+		}
+
+		std::cout << "num tris: " << m_scene.triangles.size();
+		
+			//tinyobj::attrib_t attrib;
+			//std::vector<tinyobj::shape_t> shapes;
+			//std::vector<tinyobj::material_t> materials;
+
+			//std::string warn;
+			//std::string err;
+
+			//if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../Assets/cornell-box/CornellBox-Sphere.obj"))
+			//{
+			//	std::cout << "File loaded";
+			//	//m_scene.meshes.push_back(m_objLoader.LoadedMeshes[0]);
+			//}
+		
+
+
 	}
 
 	virtual void OnUpdate(float ts) override
