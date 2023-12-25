@@ -196,9 +196,9 @@ boundingBox KDTreeCPU::computeTightFittingBoundingBox( int num_tris, int *tri_in
 	for ( int i = 0; i < num_tris; ++i ) {
 		glm::vec3 tri = tris[i];
 		verts_index = i * 3;
-		verts[verts_index + 0] = verts[( int )tri[0]];
-		verts[verts_index + 1] = verts[( int )tri[1]];
-		verts[verts_index + 2] = verts[( int )tri[2]];
+		verts[verts_index + 0] = this->verts[( int )tri[0]];
+		verts[verts_index + 1] = this->verts[( int )tri[1]];
+		verts[verts_index + 2] = this->verts[( int )tri[2]];
 	}
 
 	boundingBox bbox = computeTightFittingBoundingBox( num_verts, verts );
@@ -249,8 +249,8 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 
 	// Compute median value for longest side as well as "loose-fitting" bounding boxes.
 	float median_val = 0.0;
-	boundingBox left_bbox = bounds;
-	boundingBox right_bbox = bounds;
+	boundingBox left_bbox = node->bbox;
+	boundingBox right_bbox = node->bbox;
 	if ( longest_side == X_AXIS ) {
 		median_val = bounds.min.x + ( ( bounds.max.x - bounds.min.x ) / 2.0f );
 		left_bbox.max.x = median_val;

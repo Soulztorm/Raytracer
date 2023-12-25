@@ -171,7 +171,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 
 
 	// Triangle intersections
-	if (m_activeScene->kd_tree) {
+	//if (m_activeScene->kd_tree) {
 		// We hit a triangle
 		float t = 0.0f;
 		float u = 0.0f;
@@ -185,7 +185,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 			closestTriangle_v = v;
 		}
 		
-	}
+	//}
 	//else {
 	//	for (int i = 0; i < m_activeScene->triangles.size(); i++)
 	//	{

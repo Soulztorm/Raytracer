@@ -20,7 +20,7 @@ Intersections::~Intersections()
 // Implementation inspired by zacharmarz.
 // https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
 ////////////////////////////////////////////////////
-bool Intersections::aabbIntersect( boundingBox bbox, glm::vec3 ray_o, glm::vec3 ray_dir )
+bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir )
 {
 	glm::vec3 dirfrac( 1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z );
 
@@ -47,75 +47,13 @@ bool Intersections::aabbIntersect( boundingBox bbox, glm::vec3 ray_o, glm::vec3 
 	return true;
 }
 
-typedef unsigned int udword;
-
-//! Integer representation of a floating-point value.
-#define IR(x)	((udword&)x)
-#define RAYAABB_EPSILON 0.00001f
-bool Intersections::aabbIntersect2(boundingBox bbox, glm::vec3 ray_o, glm::vec3 ray_dir)
-{
-	bool Inside = true;
-	glm::vec3 MaxT{ -1.0f };
-	glm::vec3 coord{ 0.0f };
-	
-
-	// Find candidate planes.
-	for (udword i = 0; i < 3; i++)
-	{
-		if (ray_o[i] < bbox.min[i])
-		{
-			coord[i] = bbox.min[i];
-			Inside = false;
-
-			// Calculate T distances to candidate planes
-			if (IR(ray_dir[i]))	MaxT[i] = (bbox.min[i] - ray_o[i]) / ray_dir[i];
-		}
-		else if (ray_o[i] > bbox.max[i])
-		{
-			coord[i] = bbox.max[i];
-			Inside = false;
-
-			// Calculate T distances to candidate planes
-			if (IR(ray_dir[i]))	MaxT[i] = (bbox.max[i] - ray_o[i]) / ray_dir[i];
-		}
-	}
-
-	// Ray origin inside bounding box
-	if (Inside)
-	{
-		return true;
-	}
-
-	// Get largest of the maxT's for final choice of intersection
-	udword WhichPlane = 0;
-	if (MaxT[1] > MaxT[WhichPlane])	WhichPlane = 1;
-	if (MaxT[2] > MaxT[WhichPlane])	WhichPlane = 2;
-
-	// Check final candidate actually inside box
-	if (IR(MaxT[WhichPlane]) & 0x80000000) return false;
-
-	for (udword i = 0; i < 3; i++)
-	{
-		if (i != WhichPlane)
-		{
-			coord[i] = ray_o[i] + MaxT[WhichPlane] * ray_dir[i];
-#ifdef RAYAABB_EPSILON
-			if (coord[i] < bbox.min[i] - RAYAABB_EPSILON || coord[i] > bbox.max[i] + RAYAABB_EPSILON)	return false;
-#else
-			if (coord[i] < bbox.min[i] || coord[i] > bbox.max[i])	return false;
-#endif
-		}
-	}
-	return true;	// ray hits box
-}
-
 
 ////////////////////////////////////////////////////
 // Fast, minimum storage ray/triangle intersection test.
 // Implementation inspired by Tomas Moller: http://www.graphics.cornell.edu/pubs/1997/MT97.pdf
 // Additional algorithm details: http://www.lighthouse3d.com/tutorials/maths/ray-triangle-intersection/
 ////////////////////////////////////////////////////
-bool Intersections::triIntersect( glm::vec3 ray_o, glm::vec3 ray_dir, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, float &t, float& _u, float& _v)
+bool Intersections::triIntersect(const glm::vec3& ray_o, const glm::vec3& ray_dir, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, float &t, float& _u, float& _v)
 {
 	glm::vec3 e1, e2, h, s, q;
 	float a, f, u, v;
