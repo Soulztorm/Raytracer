@@ -2,13 +2,17 @@
 #include <algorithm>
 #include "Intersections.h"
 #include <iostream>
+#include <vector>
+#include <algorithm>
+
+#include "../Scene.h"
 
 
 ////////////////////////////////////////////////////
 // Constructor/destructor.
 ////////////////////////////////////////////////////
 
-KDTreeCPU::KDTreeCPU( int num_tris, glm::vec3 *tris, int num_verts, glm::vec3 *verts )
+KDTreeCPU::KDTreeCPU( int num_tris, glm::uvec3*tris, int num_verts, glm::vec3 *verts )
 {
 	// Set class-level variables.
 	num_levels = 0;
@@ -22,7 +26,7 @@ KDTreeCPU::KDTreeCPU( int num_tris, glm::vec3 *tris, int num_verts, glm::vec3 *v
 		this->verts[i] = verts[i];
 	}
 
-	this->tris = new glm::vec3[num_tris];
+	this->tris = new glm::uvec3[num_tris];
 	for ( int i = 0; i < num_tris; ++i ) {
 		this->tris[i] = tris[i];
 	}
@@ -143,7 +147,7 @@ glm::vec3* KDTreeCPU::getMeshVerts( void ) const
 	return verts;
 }
 
-glm::vec3* KDTreeCPU::getMeshTris( void ) const
+glm::uvec3* KDTreeCPU::getMeshTris( void ) const
 {
 	return tris;
 }
@@ -194,11 +198,11 @@ boundingBox KDTreeCPU::computeTightFittingBoundingBox( int num_tris, int *tri_in
 
 	int verts_index;
 	for ( int i = 0; i < num_tris; ++i ) {
-		glm::vec3 tri = tris[i];
+		glm::uvec3 tri = tris[i];
 		verts_index = i * 3;
-		verts[verts_index + 0] = this->verts[( int )tri[0]];
-		verts[verts_index + 1] = this->verts[( int )tri[1]];
-		verts[verts_index + 2] = this->verts[( int )tri[2]];
+		verts[verts_index] = this->verts[tri[0]];
+		verts[verts_index + 1] = this->verts[tri[1]];
+		verts[verts_index + 2] = this->verts[tri[2]];
 	}
 
 	boundingBox bbox = computeTightFittingBoundingBox( num_verts, verts );
@@ -247,27 +251,60 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 	SplitAxis longest_side = getLongestBoundingBoxSide( bounds.min, bounds.max );
 	node->split_plane_axis = longest_side;
 
+
+	std::vector<glm::vec3> vertos;
+	for (int i = 0; i < num_tris; i++) {
+		glm::uvec3 tr = tris[tri_indices[i]];
+
+		glm::vec3 v0 = verts[tr[0]];
+		glm::vec3 v1 = verts[tr[1]];
+		glm::vec3 v2 = verts[tr[2]];
+		vertos.push_back(v0);
+		vertos.push_back(v1);
+		vertos.push_back(v2);
+
+		//Triangle& tri = triangles.emplace_back();
+		//tri.Centroid = (v0 + v1 + v2) / 3.0f;
+	}
+
+	// Sort centroids by current axis
+	std::sort(vertos.begin(), vertos.end(), [longest_side](const glm::vec3& t1, const glm::vec3& t2) { return t1[longest_side] < t2[longest_side]; });
+
+	// Find the median splitting plane
+	uint32_t medianIndex = vertos.size() / 2;
+	float medianPlaneCoord = vertos[medianIndex][longest_side];
+
+
+
+
 	// Compute median value for longest side as well as "loose-fitting" bounding boxes.
 	float median_val = 0.0;
 	boundingBox left_bbox = node->bbox;
 	boundingBox right_bbox = node->bbox;
-	if ( longest_side == X_AXIS ) {
-		median_val = bounds.min.x + ( ( bounds.max.x - bounds.min.x ) / 2.0f );
-		left_bbox.max.x = median_val;
-		right_bbox.min.x = median_val;
-	}
-	else if ( longest_side == Y_AXIS ) {
-		median_val = bounds.min.y + ( ( bounds.max.y - bounds.min.y ) / 2.0f );
-		left_bbox.max.y = median_val;
-		right_bbox.min.y = median_val;
-	}
-	else {
-		median_val = bounds.min.z + ( ( bounds.max.z - bounds.min.z ) / 2.0f );
-		left_bbox.max.z = median_val;
-		right_bbox.min.z = median_val;
-	}
+
+	median_val = bounds.min[longest_side] + ((bounds.max[longest_side] - bounds.min[longest_side]) / 2.0f);
+	left_bbox.max[longest_side] = median_val;
+	right_bbox.min[longest_side] = median_val;
+
+
+	//if (medianPlaneCoord > bounds.min[longest_side] && medianPlaneCoord < bounds.max[longest_side]) {
+	//	median_val = medianPlaneCoord;
+	//	left_bbox.max[longest_side] = median_val;
+	//	right_bbox.min[longest_side] = median_val;
+	//}
+
 
 	node->split_plane_value = median_val;
+
+
+
+
+
+
+
+
+
+
 
 	// Allocate and initialize memory for temporary buffers to hold triangle indices for left and right subtrees.
 	int *temp_left_tri_indices = new int[num_tris];
@@ -351,14 +388,17 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 bool KDTreeCPU::intersect( const glm::vec3 &ray_o, const glm::vec3 &ray_dir, float &t, uint32_t& tri_index, float& u, float& v) const
 {
 	t = INFINITYY;
-	return intersect(root, ray_o, ray_dir, t, tri_index, u, v);
+
+	glm::vec3 ray_dir_inv(1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z);
+
+	return intersect(root, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
 }
 
 // Private recursive call.
-bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, float &t, uint32_t& tri_index, float& u, float& v) const
+bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const
 {
 	// Perform ray/AABB intersection test.
-	bool intersects_aabb = Intersections::aabbIntersect( curr_node->bbox, ray_o, ray_dir );
+	bool intersects_aabb = Intersections::aabbIntersect( curr_node->bbox, ray_o, ray_dir_inv);
 
 	if ( intersects_aabb ) {
 		// If current node is a leaf node.
@@ -367,19 +407,21 @@ bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const 
 			bool intersection_detected = false;
 			for ( int i = 0; i < curr_node->num_tris; ++i ) {
 				int triIndex = curr_node->tri_indices[i];
-				glm::vec3 tri = tris[triIndex];
-				glm::vec3 v0 = verts[( int )tri[0]];
-				glm::vec3 v1 = verts[( int )tri[1]];
-				glm::vec3 v2 = verts[( int )tri[2]];
+				const glm::uvec3& tri = tris[triIndex];
+				const glm::vec3& v0 = verts[tri[0]];
+				const glm::vec3& v1 = verts[tri[1]];
+				const glm::vec3& v2 = verts[tri[2]];
 
 				// Perform ray/triangle intersection test.
 				float tmp_t = INFINITYY;
 				float tmp_u = 0.0f;
 				float tmp_v = 0.0f;
-				glm::vec3 tmp_normal( 0.0f, 0.0f, 0.0f );
 				bool intersects_tri = Intersections::triIntersect( ray_o, ray_dir, v0, v1, v2, tmp_t, tmp_u, tmp_v);
 
-				if ( intersects_tri ) {
+
+				// intersects and no backface was hit
+				//if (intersects_tri && glm::dot(glm::cross(v0 - v1, v0 - v2), ray_dir) < 0.0f) {
+				if (intersects_tri) {
 					intersection_detected = true;
 					if ( tmp_t < t ) {
 						t = tmp_t;
@@ -396,10 +438,10 @@ bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const 
 		else {
 			bool hit_left = false, hit_right = false;
 			if ( curr_node->left ) {
-				hit_left = intersect( curr_node->left, ray_o, ray_dir, t, tri_index, u, v);
+				hit_left = intersect( curr_node->left, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
 			}
 			if ( curr_node->right ) {
-				hit_right = intersect( curr_node->right, ray_o, ray_dir, t, tri_index, u, v);
+				hit_right = intersect( curr_node->right, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
 			}
 			return hit_left || hit_right;
 		}

@@ -13,8 +13,35 @@
 
 using namespace Walnut;
 
+const float EPSILON = 0.0002f;
+
 Renderer::Renderer()
 {
+}
+
+void Renderer::OnResize(uint32_t width, uint32_t height)
+{
+	if (m_Image) {
+		if (m_Image->GetWidth() == width && m_Image->GetHeight() == height)
+			return;
+		
+		m_Image->Resize(width, height);
+	}
+	else {
+		m_Image = std::make_shared<Walnut::Image>(width, height, ImageFormat::RGBA32F);
+	}
+
+	delete[] m_ImageData;
+	m_ImageData = new float[4 * width * height];
+
+	delete[] m_AccumulationBuffer;
+	m_AccumulationBuffer = new glm::vec4[width * height];
+
+	m_ImageVerticalIter.resize(height);
+	for (uint32_t i = 0; i < height; i++)
+		m_ImageVerticalIter[i] = i;
+
+	ResetFrameIndex();
 }
 
 void Renderer::Render(const Scene& scene, const Camera& camera)
@@ -40,12 +67,67 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 
 			m_AccumulationBuffer[pixelIndex] += pixelColor;
 
-			glm::vec4 accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float) m_frameindex;
+			glm::vec4 accumulatedColor;
+			if (m_settings.UseACE_Color)
+				accumulatedColor = Util::ACESFilm(m_AccumulationBuffer[pixelIndex] / (float)m_frameindex);
+			else
+				accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float)m_frameindex;
+
 			accumulatedColor.a = 1.0f;
 
-			m_ImageData[pixelIndex] = Util::ColorFromVec4(accumulatedColor);
+			int px = pixelIndex * 4;
+			m_ImageData[px] = accumulatedColor.r;
+			m_ImageData[px + 1] = accumulatedColor.g;
+			m_ImageData[px + 2] = accumulatedColor.b;
+			m_ImageData[px + 3] = accumulatedColor.a;
 		}
 	});
+
+	// Anti alias
+	if (m_settings.AntiAliasing) {
+		int kernelSize = 1;
+		for (uint32_t y = 0; y < height; y++)
+		{
+			for (uint32_t x = 0; x < width; x++)
+			{
+				glm::vec4 acc_px{ 0.0f };
+				float weight = 0.0f;
+				// Kernel
+				for (int yo = -kernelSize; yo <= kernelSize; yo++)
+				{
+					for (int xo = -kernelSize; xo <= kernelSize; xo++)
+					{
+						// bounds check
+						if (std::abs(xo + yo) > kernelSize || x + xo < 0 || x + xo >= width || y + yo < 0 || y + yo >= height)
+							continue;
+
+						float w = 1.0f - ((std::abs(yo) + std::abs(xo)) * 0.5f);
+						acc_px += m_AccumulationBuffer[(y + yo) * width + x + xo] * w;
+						weight += w;
+
+					}
+				}
+
+				if (weight == 0.0f)
+					continue;
+
+				acc_px /= (weight * (float)m_frameindex);
+
+				if (m_settings.UseACE_Color)
+					acc_px = Util::ACESFilm(acc_px);
+
+				acc_px.a = 1.0f;
+
+				int pixelIndex = 4 * (y * width + x);
+				m_ImageData[pixelIndex] = acc_px.r;
+				m_ImageData[pixelIndex+ 1] = acc_px.g;
+				m_ImageData[pixelIndex+ 2] = acc_px.b;
+				m_ImageData[pixelIndex+ 3] = acc_px.a;
+			}
+		}
+	}
+	
+
 
 	if (m_settings.Accumulate)
 		m_frameindex++;
@@ -56,30 +138,6 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 	m_Image->SetData(m_ImageData);
 }
 
-void Renderer::OnResize(uint32_t width, uint32_t height)
-{
-	if (m_Image) {
-		if (m_Image->GetWidth() == width && m_Image->GetHeight() == height)
-			return;
-		
-		m_Image->Resize(width, height);
-	}
-	else {
-		m_Image = std::make_shared<Walnut::Image>(width, height, ImageFormat::RGBA);
-	}
-
-	delete[] m_ImageData;
-	m_ImageData = new uint32_t[width * height];
-
-	delete[] m_AccumulationBuffer;
-	m_AccumulationBuffer = new glm::vec4[width * height];
-
-	m_ImageVerticalIter.resize(height);
-	for (uint32_t i = 0; i < height; i++)
-		m_ImageVerticalIter[i] = i;
-
-	ResetFrameIndex();
-}
 
 glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	Ray ray;
@@ -98,29 +156,68 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		// no hit
 		if (hitdata.Distance < 0.0f) {
-			//finalColor += ambientColor * contribution;
+			finalColor += contribution * glm::vec3(1.0, 1.0, 1.0);
 			break;
 		}
 
-		glm::vec3 offsetPosition = hitdata.Position + hitdata.Normal * 0.0002f;
-
-
+		// What material did we hit?
 		Material mat = m_activeScene->materials[hitdata.MaterialIndex];
 
 
-		//finalColor += contribution * hitColor * diffuse;
-		contribution *= mat.Albedo;
+
+
+		bool doTransmission = false;
+
+		glm::vec3 normalSurface = glm::dot(ray.Direction, hitdata.Normal) < 0.0f ? hitdata.Normal : -hitdata.Normal;
+
+		if (mat.Transparency > 0.0f) {
+			// fresnel term    0: no reflect   1: full reflect
+			float fresnel = glm::dot(ray.Direction, -normalSurface);
+
+			//if (Random::Float() < fresnel) {
+				doTransmission = true;
+			//}
+		}
+
+
+		// Transmission or reflection ray?
+		if (doTransmission) {
+			Ray refractionRay;
+
+			if (RefractionRay(ray.Direction, hitdata.Normal, hitdata.Position, mat.IOR, refractionRay)) {
+				ray = refractionRay;
+				continue;
+			}
+		}
+		else {
+			glm::vec3 diffuseRayDir = glm::normalize(hitdata.Normal + Util::RandomUnitVector());
+			glm::vec3 reflectedVector = glm::reflect(ray.Direction, hitdata.Normal);
+			reflectedVector = glm::normalize(glm::mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+
+
+			//glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
+			//glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
+
+			ray.Origin = hitdata.Position + normalSurface * EPSILON;
+			ray.Direction = reflectedVector;
+		}
+
+
 		finalColor += mat.Emission * contribution;
+		contribution *= mat.Albedo;
 
 
-		glm::vec3 directionToSurface = offsetPosition - ray.Origin;
+		// Russian Roulette
+		// As the throughput gets smaller, the ray is more likely to get terminated early.
+		// Survivors have their value boosted to make up for fewer samples being in the average.
+		{
+			float p = std::max(contribution.r, std::max(contribution.g, contribution.b));
+			if (Random::Float() > p)
+				break;
 
-		glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
-		glm::vec3 reflectedVector = glm::reflect(directionToSurface, randomHemisphereVector);
-		//glm::vec3 reflectedVector = glm::reflect(directionToSurface, glm::normalize(hitdata.Normal + Random::InUnitSphere() * 0.9f * mat.Roughness));
-
-		ray.Origin = offsetPosition;
-		ray.Direction = (reflectedVector);
+			// Add the energy we 'lose' by randomly terminating paths
+			contribution *= 1.0f / p;
+		}
 	}
 
 	return glm::vec4(finalColor, 1.0f);
@@ -138,41 +235,37 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 
 
 
+	if (m_settings.UseSphereScene) {
+		// Sphere intersections
+		// Only dependant on ray direction
+		float a = glm::dot(ray.Direction, ray.Direction);
+		float dbl_a = (2.0f * a);
 
-	// Sphere intersections
-	// Only dependant on ray direction
-	//float a = glm::dot(ray.Direction, ray.Direction);
-	//float dbl_a = (2.0f * a);
+		// Loop through scene to find closest hit (if any)
+		for (int i = 0; i < m_activeScene->spheres.size(); i++)
+		{
+			const Sphere& sphere = m_activeScene->spheres[i];
 
-	// Loop through scene to find closest hit (if any)
-	//for (int i = 0; i < m_activeScene->spheres.size(); i++)
-	//{
-	//	const Sphere& sphere = m_activeScene->spheres[i];
+			glm::vec3 rayOrigin = ray.Origin - sphere.Position;
 
-	//	glm::vec3 rayOrigin = ray.Origin - sphere.Position;
+			float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
+			float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
 
-	//	float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
-	//	float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
+			float discriminant = b * b - 4.0f * a * c;
 
-	//	float discriminant = b * b - 4.0f * a * c;
+			// hit
+			if (discriminant >= 0.0f) {
+				float t = (-b - glm::sqrt(discriminant)) / dbl_a;
 
-	//	// hit
-	//	if (discriminant >= 0.0f) {
-	//		float t = (-b - glm::sqrt(discriminant)) / dbl_a;
-
-	//		if (t > 0.0f && t < closestDistSpheres){
-	//			closestDistSpheres = t;
-	//			closestSphereIndex = i;
-	//		}
-	//	}
-	//}
-
-
-
-
-	// Triangle intersections
-	//if (m_activeScene->kd_tree) {
-		// We hit a triangle
+				if (t > 0.0f && t < closestDistSpheres){
+					closestDistSpheres = t;
+					closestSphereIndex = i;
+				}
+			}
+		}
+	}
+	else {
+		// Triangle intersections
 		float t = 0.0f;
 		float u = 0.0f;
 		float v = 0.0f;
@@ -184,23 +277,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 			closestTriangle_u = u;
 			closestTriangle_v = v;
 		}
-		
-	//}
-	//else {
-	//	for (int i = 0; i < m_activeScene->triangles.size(); i++)
-	//	{
-	//		const Triangle& triangle = m_activeScene->triangles[i];
-
-	//		float t = 0.0f;
-
-	//		if (IntersectRayTriangle2(ray, triangle, t)) {
-	//			if (t < closestDistTriangles) {
-	//				closestDistTriangles = t;
-	//				closestTriangleIndex = i;
-	//			}
-	//		}
-	//	}
-	//}
+	}
 
 
 
@@ -235,25 +312,46 @@ Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uin
 
 Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v)
 {
-	HitData hitdata;
-
 	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
+	glm::vec3 nrm = (1.0f - u - v) * m_activeScene->triangles[objectIndex].Normals[0] + u * m_activeScene->triangles[objectIndex].Normals[1] + v * m_activeScene->triangles[objectIndex].Normals[2];
 
 	// Set hit data
+	HitData hitdata;
 	hitdata.Distance = distance;
 	hitdata.Position = hitPoint;
-
-	// (1-u-v) * p0 + u * p1 + v * p2
-
-	glm::vec3 nrm = (1.0f - u - v) * m_activeScene->triangles[objectIndex].Normals[0] + u * m_activeScene->triangles[objectIndex].Normals[1] + v * m_activeScene->triangles[objectIndex].Normals[2];
 	hitdata.Normal = glm::normalize(nrm);
-	
-	//hitdata.Normal = m_activeScene->triangles[objectIndex].Normal;
-
-
 	hitdata.MaterialIndex = m_activeScene->triangles[objectIndex].MaterialIndex;
 
 	return hitdata;
+}
+
+bool Renderer::RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& normal, const glm::vec3& intersection_point, float IOR, Ray& ray_out)
+{
+	glm::vec3 ref_n = normal;
+	float eta_t = IOR;
+	float eta_i = 1.0f;
+	float i_dot_n = glm::dot(ray_dir_in, normal);
+
+	if (i_dot_n < 0.0f) {
+		i_dot_n = -i_dot_n;
+	}
+	else {
+		//Inside the surface; invert the normal and swap the indices of refraction
+		ref_n = -normal;
+		eta_t = 1.0f;
+		eta_i = IOR;
+	}
+
+	float eta = eta_i / eta_t;
+	float k = 1.0f - (eta * eta) * (1.0f - i_dot_n * i_dot_n);
+	if (k < 0.0f) {
+		return false;
+	}
+	else {
+		ray_out.Origin = intersection_point + (ref_n * -EPSILON);
+		ray_out.Direction = glm::normalize((ray_dir_in + i_dot_n * ref_n) * eta - ref_n * std::sqrt(k));
+		return true;
+	}
 }
 
 
@@ -280,7 +378,7 @@ bool Renderer::IntersectRayTriangle(const Ray& ray, const Triangle& triangle, fl
 	glm::vec3 v0v2 = v2 - v0;
 	// no need to normalize
 	glm::vec3 N = glm::cross(v0v1, v0v2); // N
-	float area2 = (float) N.length();
+	float area2 = (float) glm::length(N);
 
 	// Step 1: finding P
 

@@ -12,6 +12,7 @@
 #include "Ray.h"
 
 float const Pi = std::atan(1.0f) * 4.0f;
+float const TwoPi = 2.0f * Pi;
 
 namespace Util {
 	static uint32_t ColorFromVec4(glm::vec4 col) {
@@ -42,6 +43,35 @@ namespace Util {
 		// Construct the vector that has coordinates (x,y,z) in the basis formed by b1, b2, b3
 		return x * b1 + y * b2 + z * normal;
 	}
+
+
+	static glm::vec3 RandomUnitVector()
+	{
+		float z = Walnut::Random::Float() * 2.0f - 1.0f;
+		float a = Walnut::Random::Float() * TwoPi;
+		float r = sqrt(1.0f - z * z);
+		float x = r * cos(a);
+		float y = r * sin(a);
+		return glm::vec3(x, y, z);
+	}
+
+
+	static const float ACE_a = 2.51f;
+	static const float ACE_b = 0.03f;
+	static const float ACE_c = 2.43f;
+	static const float ACE_d = 0.59f;
+	static const float ACE_e = 0.14f;
+
+	static glm::vec4 ACESFilm(glm::vec4 x)
+	{
+		//float gammaCorrect = 1.0f / 2.2f;
+		//x.r = std::pow(x.r, gammaCorrect);
+		//x.g = std::pow(x.g, gammaCorrect);
+		//x.b = std::pow(x.b, gammaCorrect);
+		glm::vec4 aceColor = glm::clamp((x * (ACE_a * x + ACE_b)) / (x * (ACE_c * x + ACE_d) + ACE_e), 0.0f, 1.0f);
+
+		return aceColor;
+	}
 }
 
 class Renderer {
@@ -49,7 +79,10 @@ public:
 	struct Settings {
 		bool Render = true;
 		bool Accumulate = true;
-		uint32_t Bounces = 5;
+		bool UseSphereScene = true;
+		bool UseACE_Color = true;
+		bool AntiAliasing = false;
+		uint32_t Bounces = 8;
 	};
 	Settings& GetSettings() { return m_settings; }
 
@@ -62,6 +95,7 @@ public:
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
 
 	void ResetFrameIndex() { m_frameindex = 1; }
+	uint32_t GetFrameIndex() { return m_frameindex; }
 
 
 private:
@@ -82,6 +116,8 @@ private:
 	HitData ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex);
 	HitData ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v);
 
+	bool RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& normal, const glm::vec3& intersection_point, float IOR, Ray& ray_out);
+
 	bool IntersectRayTriangle(const Ray& ray, const Triangle& triangle, float& t);
 	bool IntersectRayTriangle2(const Ray& ray, const Triangle& triangle, float& t);
 
@@ -93,9 +129,9 @@ private:
 	Settings m_settings = Settings();
 
 	std::shared_ptr<Walnut::Image> m_Image;
-	uint32_t* m_ImageData = nullptr;
+	float* m_ImageData = nullptr;
 	glm::vec4* m_AccumulationBuffer = nullptr;
 	std::vector<uint32_t> m_ImageVerticalIter;
 
-	int m_frameindex = 1;
+	uint32_t m_frameindex = 1;
 };

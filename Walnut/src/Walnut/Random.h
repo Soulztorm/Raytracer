@@ -7,7 +7,8 @@
 #include "pcg_random.hpp"
 
 #define RNG pcg32
-//#define RNG std::mt19937
+
+const float MAX_FLTUINT = (float)std::numeric_limits<uint32_t>::max();
 
 namespace Walnut {
 
@@ -33,7 +34,7 @@ namespace Walnut {
 
 		static float Float()
 		{
-			return (float)s_Distribution(s_RandomEngine) / (float)std::numeric_limits<uint32_t>::max();
+			return (float)s_Distribution(s_RandomEngine) / MAX_FLTUINT;
 		}
 
 		static float Float(float min, float max)
@@ -48,7 +49,8 @@ namespace Walnut {
 
 		static glm::vec3 Vec3(float min, float max)
 		{
-			return glm::vec3(Float() * (max - min) + min, Float() * (max - min) + min, Float() * (max - min) + min);
+			float minmax = (max - min) + min;
+			return glm::vec3(Float() * minmax, Float() * minmax, Float() * minmax);
 		}
 
 		static glm::vec3 InUnitSphere()

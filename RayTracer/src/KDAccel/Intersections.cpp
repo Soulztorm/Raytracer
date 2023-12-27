@@ -20,24 +20,29 @@ Intersections::~Intersections()
 // Implementation inspired by zacharmarz.
 // https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
 ////////////////////////////////////////////////////
-bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir )
+bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv)
 {
-	glm::vec3 dirfrac( 1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z );
+	// Early out, ray origin inside bb
+	if (ray_o.x > bbox.min.x && ray_o.x < bbox.max.x &&
+		ray_o.y > bbox.min.y && ray_o.y < bbox.max.y &&
+		ray_o.z > bbox.min.z && ray_o.z < bbox.max.z)
+		return true;
 
-	float t1 = ( bbox.min.x - ray_o.x ) * dirfrac.x;
-	float t2 = ( bbox.max.x - ray_o.x ) * dirfrac.x;
-	float t3 = ( bbox.min.y - ray_o.y ) * dirfrac.y;
-	float t4 = ( bbox.max.y - ray_o.y ) * dirfrac.y;
-	float t5 = ( bbox.min.z - ray_o.z ) * dirfrac.z;
-	float t6 = ( bbox.max.z - ray_o.z ) * dirfrac.z;
+	float t1 = ( bbox.min.x - ray_o.x ) * ray_dir_inv.x;
+	float t2 = ( bbox.max.x - ray_o.x ) * ray_dir_inv.x;
+	float t3 = ( bbox.min.y - ray_o.y ) * ray_dir_inv.y;
+	float t4 = ( bbox.max.y - ray_o.y ) * ray_dir_inv.y;
+	float t5 = ( bbox.min.z - ray_o.z ) * ray_dir_inv.z;
+	float t6 = ( bbox.max.z - ray_o.z ) * ray_dir_inv.z;
 
-	float tmin = std::max( std::max( std::min( t1, t2 ), std::min( t3, t4 ) ), std::min( t5, t6 ) );
 	float tmax = std::min( std::min( std::max( t1, t2 ), std::max( t3, t4 ) ), std::max( t5, t6 ) );
 
 	// If tmax < 0, ray intersects AABB, but entire AABB is behind ray, so reject.
 	if ( tmax < 0.0f ) {
 		return false;
 	}
+
+	float tmin = std::max( std::max( std::min( t1, t2 ), std::min( t3, t4 ) ), std::min( t5, t6 ) );
 
 	// If tmin > tmax, ray does not intersect AABB.
 	if ( tmin > tmax ) {
