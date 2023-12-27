@@ -42,7 +42,7 @@ public:
 				mat.Albedo = glm::max(
 					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]),
 					glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
-				mat.Emission = 5.0f * glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
+				mat.Emission = 2.0f * glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
 				mat.Roughness = (1024.0f - _mat.shininess) / 1024.0f;
 				mat.IOR = _mat.ior;
 				if (_mat.name == "water")
@@ -176,7 +176,7 @@ public:
 		{
 			Material& mat = m_scene.materials.emplace_back();
 			mat.Albedo = glm::vec3(1.0, 1.0, 1.0);
-			mat.Emission = glm::vec3{ 20.0f };
+			mat.Emission = glm::vec3{ 5.0f };
 		}
 
 		{

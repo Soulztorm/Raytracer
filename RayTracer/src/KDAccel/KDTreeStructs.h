@@ -43,7 +43,8 @@ struct KDRay
 
 struct boundingBox
 {
-	glm::vec3 min, max;
+	//glm::vec3 min, max;
+	glm::vec3 center, extends;
 };
 
 
@@ -72,12 +73,6 @@ public:
 	KDTreeNode *ropes[6];
 
 	int id;
-
-	bool isPointToLeftOfSplittingPlane( const glm::vec3 &p ) const;
-	KDTreeNode* getNeighboringNode( glm::vec3 p );
-
-	// Debug method.
-	void prettyPrint( void );
 };
 
 #endif

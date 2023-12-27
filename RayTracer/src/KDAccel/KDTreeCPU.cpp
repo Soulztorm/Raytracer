@@ -87,13 +87,9 @@ int KDTreeCPU::getNumNodes( void ) const
 	return num_nodes;
 }
 
-SplitAxis KDTreeCPU::getLongestBoundingBoxSide( glm::vec3 min, glm::vec3 max )
+SplitAxis KDTreeCPU::getLongestBoundingBoxSide( const boundingBox&  bbox)
 {
-	// max > min is guaranteed.
-	float xlength = max.x - min.x;
-	float ylength = max.y - min.y;
-	float zlength = max.z - min.z;
-	return ( xlength > ylength && xlength > zlength ) ? X_AXIS : ( ylength > zlength ? Y_AXIS : Z_AXIS );
+	return ( bbox.extends.x > bbox.extends.y && bbox.extends.x > bbox.extends.z) ? X_AXIS : (bbox.extends.y > bbox.extends.z ? Y_AXIS : Z_AXIS );
 }
 
 float KDTreeCPU::getMinTriValue( int tri_index, SplitAxis axis )
@@ -185,8 +181,8 @@ boundingBox KDTreeCPU::computeTightFittingBoundingBox( int num_verts, glm::vec3 
 	}
 
 	boundingBox bbox;
-	bbox.min = min;
-	bbox.max = max;
+	bbox.center = 0.5f * (min + max);
+	bbox.extends = 0.5f * (max - min);
 
 	return bbox;
 }
@@ -248,31 +244,31 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 	}
 
 	// Get longest side of bounding box.
-	SplitAxis longest_side = getLongestBoundingBoxSide( bounds.min, bounds.max );
+	SplitAxis longest_side = getLongestBoundingBoxSide( bounds );
 	node->split_plane_axis = longest_side;
 
 
-	std::vector<glm::vec3> vertos;
-	for (int i = 0; i < num_tris; i++) {
-		glm::uvec3 tr = tris[tri_indices[i]];
+	//std::vector<glm::vec3> vertos;
+	//for (int i = 0; i < num_tris; i++) {
+	//	glm::uvec3 tr = tris[tri_indices[i]];
 
-		glm::vec3 v0 = verts[tr[0]];
-		glm::vec3 v1 = verts[tr[1]];
-		glm::vec3 v2 = verts[tr[2]];
-		vertos.push_back(v0);
-		vertos.push_back(v1);
-		vertos.push_back(v2);
+	//	glm::vec3 v0 = verts[tr[0]];
+	//	glm::vec3 v1 = verts[tr[1]];
+	//	glm::vec3 v2 = verts[tr[2]];
+	//	vertos.push_back(v0);
+	//	vertos.push_back(v1);
+	//	vertos.push_back(v2);
 
-		//Triangle& tri = triangles.emplace_back();
-		//tri.Centroid = (v0 + v1 + v2) / 3.0f;
-	}
+	//	//Triangle& tri = triangles.emplace_back();
+	//	//tri.Centroid = (v0 + v1 + v2) / 3.0f;
+	//}
 
-	// Sort centroids by current axis
-	std::sort(vertos.begin(), vertos.end(), [longest_side](const glm::vec3& t1, const glm::vec3& t2) { return t1[longest_side] < t2[longest_side]; });
+	//// Sort centroids by current axis
+	//std::sort(vertos.begin(), vertos.end(), [longest_side](const glm::vec3& t1, const glm::vec3& t2) { return t1[longest_side] < t2[longest_side]; });
 
-	// Find the median splitting plane
-	uint32_t medianIndex = vertos.size() / 2;
-	float medianPlaneCoord = vertos[medianIndex][longest_side];
+	//// Find the median splitting plane
+	//uint32_t medianIndex = vertos.size() / 2;
+	//float medianPlaneCoord = vertos[medianIndex][longest_side];
 
 
 
@@ -282,9 +278,16 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 	boundingBox left_bbox = node->bbox;
 	boundingBox right_bbox = node->bbox;
 
-	median_val = bounds.min[longest_side] + ((bounds.max[longest_side] - bounds.min[longest_side]) / 2.0f);
-	left_bbox.max[longest_side] = median_val;
-	right_bbox.min[longest_side] = median_val;
+	//median_val = bounds.min[longest_side] + ((bounds.max[longest_side] - bounds.min[longest_side]) / 2.0f);
+	//left_bbox.max[longest_side] = median_val;
+	//right_bbox.min[longest_side] = median_val;
+
+	median_val = bounds.center[longest_side];
+	left_bbox.center[longest_side] = median_val - bounds.extends[longest_side] * 0.5f;
+	left_bbox.extends[longest_side] = bounds.extends[longest_side] * 0.5f;
+
+	right_bbox.center[longest_side] = median_val + bounds.extends[longest_side] * 0.5f;
+	right_bbox.extends[longest_side] = bounds.extends[longest_side] * 0.5f;
 
 
 	//if (medianPlaneCoord > bounds.min[longest_side] && medianPlaneCoord < bounds.max[longest_side]) {
@@ -398,6 +401,7 @@ bool KDTreeCPU::intersect( const glm::vec3 &ray_o, const glm::vec3 &ray_dir, flo
 bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const
 {
 	// Perform ray/AABB intersection test.
+	//bool intersects_aabb = Intersections::aabbIntersect2( curr_node->bbox, ray_o, ray_dir);
 	bool intersects_aabb = Intersections::aabbIntersect( curr_node->bbox, ray_o, ray_dir_inv);
 
 	if ( intersects_aabb ) {
@@ -470,15 +474,15 @@ void KDTreeCPU::printNumTrianglesInEachNode( KDTreeNode *curr_node, int curr_dep
 
 void KDTreeCPU::printNodeIdsAndBounds( KDTreeNode *curr_node )
 {
-	std::cout << "Node ID: " << curr_node->id << std::endl;
-	std::cout << "Node bbox min: ( " << curr_node->bbox.min.x << ", " << curr_node->bbox.min.y << ", " << curr_node->bbox.min.z << " )" << std::endl;
-	std::cout << "Node bbox max: ( " << curr_node->bbox.max.x << ", " << curr_node->bbox.max.y << ", " << curr_node->bbox.max.z << " )" << std::endl;
-	std::cout << std::endl;
+	//std::cout << "Node ID: " << curr_node->id << std::endl;
+	//std::cout << "Node bbox min: ( " << curr_node->bbox.min.x << ", " << curr_node->bbox.min.y << ", " << curr_node->bbox.min.z << " )" << std::endl;
+	//std::cout << "Node bbox max: ( " << curr_node->bbox.max.x << ", " << curr_node->bbox.max.y << ", " << curr_node->bbox.max.z << " )" << std::endl;
+	//std::cout << std::endl;
 
-	if ( curr_node->left ) {
-		printNodeIdsAndBounds( curr_node->left );
-	}
-	if ( curr_node->right ) {
-		printNodeIdsAndBounds( curr_node->right );
-	}
+	//if ( curr_node->left ) {
+	//	printNodeIdsAndBounds( curr_node->left );
+	//}
+	//if ( curr_node->right ) {
+	//	printNodeIdsAndBounds( curr_node->right );
+	//}
 }

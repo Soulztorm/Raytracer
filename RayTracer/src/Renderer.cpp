@@ -35,7 +35,7 @@ void Renderer::OnResize(uint32_t width, uint32_t height)
 	m_ImageData = new float[4 * width * height];
 
 	delete[] m_AccumulationBuffer;
-	m_AccumulationBuffer = new glm::vec4[width * height];
+	m_AccumulationBuffer = new glm::vec3[width * height];
 
 	m_ImageVerticalIter.resize(height);
 	for (uint32_t i = 0; i < height; i++)
@@ -55,42 +55,41 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 	float aspect = width / (float)height;
 
 	if (m_frameindex == 1)
-		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec4));
+		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec3));
 
 
-	std::for_each(std::execution::par, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
+	std::for_each(std::execution::par_unseq, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
 	{
 		for (uint32_t x = 0; x < width; x++)
 		{
-			int pixelIndex = y * width + x;
-			glm::vec4 pixelColor = PerPixel(x, y);
+			uint32_t pixelIndex = y * width + x;
+			glm::vec3 pixelColor = PerPixel(x, y);
 
 			m_AccumulationBuffer[pixelIndex] += pixelColor;
 
-			glm::vec4 accumulatedColor;
+			glm::vec3 accumulatedColor;
 			if (m_settings.UseACE_Color)
-				accumulatedColor = Util::ACESFilm(m_AccumulationBuffer[pixelIndex] / (float)m_frameindex);
+				accumulatedColor = Util::LinearToSRGB(Util::ACESFilm(m_AccumulationBuffer[pixelIndex] / (float)m_frameindex));
 			else
 				accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float)m_frameindex;
 
-			accumulatedColor.a = 1.0f;
 
-			int px = pixelIndex * 4;
+			uint32_t px = pixelIndex * 4;
 			m_ImageData[px] = accumulatedColor.r;
 			m_ImageData[px + 1] = accumulatedColor.g;
 			m_ImageData[px + 2] = accumulatedColor.b;
-			m_ImageData[px + 3] = accumulatedColor.a;
+			m_ImageData[px + 3] = 1.0f;
 		}
 	});
 
 	// Anti alias
 	if (m_settings.AntiAliasing) {
 		int kernelSize = 1;
-		for (uint32_t y = 0; y < height; y++)
+		std::for_each(std::execution::par, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(), [this, width, height, kernelSize](uint32_t y)
 		{
 			for (uint32_t x = 0; x < width; x++)
 			{
-				glm::vec4 acc_px{ 0.0f };
+				glm::vec3 acc_px{ 0.0f };
 				float weight = 0.0f;
 				// Kernel
 				for (int yo = -kernelSize; yo <= kernelSize; yo++)
@@ -114,17 +113,16 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 				acc_px /= (weight * (float)m_frameindex);
 
 				if (m_settings.UseACE_Color)
-					acc_px = Util::ACESFilm(acc_px);
+					acc_px = Util::LinearToSRGB(Util::ACESFilm(acc_px));
 
-				acc_px.a = 1.0f;
 
 				int pixelIndex = 4 * (y * width + x);
 				m_ImageData[pixelIndex] = acc_px.r;
 				m_ImageData[pixelIndex+ 1] = acc_px.g;
 				m_ImageData[pixelIndex+ 2] = acc_px.b;
-				m_ImageData[pixelIndex+ 3] = acc_px.a;
+				m_ImageData[pixelIndex+ 3] = 1.0f;
 			}
-		}
+		});
 	}
 	
 
@@ -139,12 +137,13 @@ void Renderer::Render(const Scene& scene, const Camera& camera)
 }
 
 
-glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
+glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	Ray ray;
 	ray.Origin = m_activeCamera->GetPosition();
 	ray.Direction = m_activeCamera->GetRayDirections()[y * m_Image->GetWidth() + x];
 
 
+	glm::vec3 ambientColor{ 0.0f, 0.0f, 0.0f};
 	glm::vec3 finalColor{ 0.0f };
 	glm::vec3 contribution{ 1.0f };
 
@@ -156,7 +155,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		// no hit
 		if (hitdata.Distance < 0.0f) {
-			finalColor += contribution * glm::vec3(1.0, 1.0, 1.0);
+			finalColor += contribution * ambientColor;
 			break;
 		}
 
@@ -167,8 +166,12 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 
 		bool doTransmission = false;
+		bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
+		glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
 
-		glm::vec3 normalSurface = glm::dot(ray.Direction, hitdata.Normal) < 0.0f ? hitdata.Normal : -hitdata.Normal;
+		// New ray origin offset from last hit position along surface normal
+		ray.Origin = hitdata.Position + normalSurface * EPSILON;
+
 
 		if (mat.Transparency > 0.0f) {
 			// fresnel term    0: no reflect   1: full reflect
@@ -182,8 +185,11 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 		// Transmission or reflection ray?
 		if (doTransmission) {
-			Ray refractionRay;
+			//// glsl way (me no workeee, why?)
+			//ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
+			//continue;
 
+			Ray refractionRay;
 			if (RefractionRay(ray.Direction, hitdata.Normal, hitdata.Position, mat.IOR, refractionRay)) {
 				ray = refractionRay;
 				continue;
@@ -198,7 +204,6 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 			//glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
 			//glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
 
-			ray.Origin = hitdata.Position + normalSurface * EPSILON;
 			ray.Direction = reflectedVector;
 		}
 
@@ -220,7 +225,7 @@ glm::vec4 Renderer::PerPixel(uint32_t x, uint32_t y) {
 		}
 	}
 
-	return glm::vec4(finalColor, 1.0f);
+	return finalColor;
 }
 
 Renderer::HitData Renderer::TraceRay(const Ray& ray)

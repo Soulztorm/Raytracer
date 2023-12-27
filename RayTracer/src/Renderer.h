@@ -62,15 +62,41 @@ namespace Util {
 	static const float ACE_d = 0.59f;
 	static const float ACE_e = 0.14f;
 
-	static glm::vec4 ACESFilm(glm::vec4 x)
+	static glm::vec3 ACESFilm(glm::vec3 x)
 	{
-		//float gammaCorrect = 1.0f / 2.2f;
-		//x.r = std::pow(x.r, gammaCorrect);
-		//x.g = std::pow(x.g, gammaCorrect);
-		//x.b = std::pow(x.b, gammaCorrect);
-		glm::vec4 aceColor = glm::clamp((x * (ACE_a * x + ACE_b)) / (x * (ACE_c * x + ACE_d) + ACE_e), 0.0f, 1.0f);
+		glm::vec3 aceColor = glm::clamp((x * (ACE_a * x + ACE_b)) / (x * (ACE_c * x + ACE_d) + ACE_e), 0.0f, 1.0f);
 
 		return aceColor;
+	}
+
+	static glm::vec3 LessThan(glm::vec3 f, float value)
+	{
+		return glm::vec3(
+			(f.x < value) ? 1.0f : 0.0f,
+			(f.y < value) ? 1.0f : 0.0f,
+			(f.z < value) ? 1.0f : 0.0f);
+	}
+
+	static glm::vec3 SRGBToLinear(glm::vec3 rgb)
+	{
+		rgb = glm::clamp(rgb, 0.0f, 1.0f);
+
+		return glm::mix(
+			glm::pow(((rgb + 0.055f) / 1.055f), glm::vec3(2.4f)),
+			rgb / 12.92f,
+			LessThan(rgb, 0.04045f)
+		);
+	}
+
+	static glm::vec3 LinearToSRGB(glm::vec3 rgb)
+	{
+		rgb = clamp(rgb, 0.0f, 1.0f);
+
+		return glm::mix(
+			glm::pow(rgb, glm::vec3(1.0f / 2.4f)) * 1.055f - 0.055f,
+			rgb * 12.92f,
+			LessThan(rgb, 0.0031308f)
+		);
 	}
 }
 
@@ -79,7 +105,7 @@ public:
 	struct Settings {
 		bool Render = true;
 		bool Accumulate = true;
-		bool UseSphereScene = true;
+		bool UseSphereScene = false;
 		bool UseACE_Color = true;
 		bool AntiAliasing = false;
 		uint32_t Bounces = 8;
@@ -109,7 +135,7 @@ private:
 
 
 	// Methods
-	glm::vec4 PerPixel(uint32_t x, uint32_t y);
+	glm::vec3 PerPixel(uint32_t x, uint32_t y);
 	HitData TraceRay(const Ray& ray);
 
 	HitData Miss();
@@ -130,7 +156,7 @@ private:
 
 	std::shared_ptr<Walnut::Image> m_Image;
 	float* m_ImageData = nullptr;
-	glm::vec4* m_AccumulationBuffer = nullptr;
+	glm::vec3* m_AccumulationBuffer = nullptr;
 	std::vector<uint32_t> m_ImageVerticalIter;
 
 	uint32_t m_frameindex = 1;

@@ -61,7 +61,7 @@ private:
 	bool intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const;
 
 	// Bounding box getters.
-	SplitAxis getLongestBoundingBoxSide( glm::vec3 min, glm::vec3 max );
+	SplitAxis getLongestBoundingBoxSide(const boundingBox& bbox);
 	boundingBox computeTightFittingBoundingBox( int num_verts, glm::vec3 *verts );
 	boundingBox computeTightFittingBoundingBox( int num_tris, int *tri_indices );
 
