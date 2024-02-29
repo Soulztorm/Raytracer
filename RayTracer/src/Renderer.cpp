@@ -274,7 +274,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		float v = 0.0f;
 
 		uint32_t hitIndex = 0;
-		if (m_activeScene->kd_tree->intersect(ray.Origin, ray.Direction, t, hitIndex, u, v)) {
+		if (m_activeScene->kd_tree->intersectStackless(ray.Origin, ray.Direction, t, hitIndex, u, v)) {
 			closestDistTriangles = t;
 			closestTriangleIndex = hitIndex;
 			closestTriangle_u = u;

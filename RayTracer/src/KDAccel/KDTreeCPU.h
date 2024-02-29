@@ -27,7 +27,7 @@ public:
 
 	// Public traversal method that begins recursive search.
 	bool intersect( const glm::vec3 &ray_o, const glm::vec3 &ray_dir, float &t, uint32_t& tri_index, float& u, float& v) const;	
-
+	bool intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_dir, float& t, uint32_t& tri_index, float& u, float& v) const;
 
 	// kd-tree getters.
 	KDTreeNode* getRootNode( void ) const;

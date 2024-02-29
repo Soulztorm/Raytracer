@@ -20,10 +20,15 @@ Intersections::~Intersections()
 // Implementation inspired by zacharmarz.
 // https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
 ////////////////////////////////////////////////////
-bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv, float& t_near, float& t_far)
+bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv, float& t_near)
 {
-	glm::vec3 tMin = (bbox.center - bbox.extends - ray_o) * ray_dir_inv;
-	glm::vec3 tMax = (bbox.center + bbox.extends - ray_o) * ray_dir_inv;
+	glm::vec3 l1 = (bbox.center - ray_o) * ray_dir_inv;
+	glm::vec3 l2 = bbox.extends * ray_dir_inv;
+	//glm::vec3 tMin = (bbox.center - ray_o - bbox.extends) * ray_dir_inv;
+	//glm::vec3 tMax = (bbox.center - ray_o + bbox.extends) * ray_dir_inv;
+
+	glm::vec3 tMin = l1 - l2;
+	glm::vec3 tMax = l1 + l2;
 	glm::vec3 t2 = glm::max(tMin, tMax);
 	float tFar = std::min(std::min(t2.x, t2.y), t2.z);
 
@@ -37,7 +42,6 @@ bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_
 		return false;
 
 	t_near = tNear;
-	t_far = tFar;
 
 	return true;
 }
