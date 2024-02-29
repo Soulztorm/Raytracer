@@ -20,7 +20,7 @@ Intersections::~Intersections()
 // Implementation inspired by zacharmarz.
 // https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
 ////////////////////////////////////////////////////
-bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv)
+bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv, float& t_near, float& t_far)
 {
 	glm::vec3 tMin = (bbox.center - bbox.extends - ray_o) * ray_dir_inv;
 	glm::vec3 tMax = (bbox.center + bbox.extends - ray_o) * ray_dir_inv;
@@ -35,6 +35,9 @@ bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_
 
 	if (tNear > tFar)
 		return false;
+
+	t_near = tNear;
+	t_far = tFar;
 
 	return true;
 }

@@ -5,8 +5,6 @@
 
 #include <Walnut/Image.h>
 
-#include <glm/glm.hpp>
-
 #include "Scene.h"
 #include "Camera.h"
 #include "Ray.h"

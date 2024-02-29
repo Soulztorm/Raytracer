@@ -3,8 +3,6 @@
 #include <Walnut/Image.h>
 #include <Walnut/Random.h>
 
-#include <glm/glm.hpp>
-
 #include <ppl.h>
 #include <execution>
 

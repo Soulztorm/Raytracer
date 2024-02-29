@@ -245,49 +245,94 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 
 	// Get longest side of bounding box.
 	SplitAxis longest_side = getLongestBoundingBoxSide( bounds );
-	node->split_plane_axis = longest_side;
 
 
-	//std::vector<glm::vec3> vertos;
-	//for (int i = 0; i < num_tris; i++) {
-	//	glm::uvec3 tr = tris[tri_indices[i]];
+	// Find best splitting plane through SAH
+	float cost_traversal = 5.0f;
+	float cost_intersect = 2000.0f;
 
-	//	glm::vec3 v0 = verts[tr[0]];
-	//	glm::vec3 v1 = verts[tr[1]];
-	//	glm::vec3 v2 = verts[tr[2]];
-	//	vertos.push_back(v0);
-	//	vertos.push_back(v1);
-	//	vertos.push_back(v2);
+	SplitAxis min_cost_side = longest_side;
+	float min_cost = INFINITYY;
+	float min_splitting_plane = 0.0f;
 
-	//	//Triangle& tri = triangles.emplace_back();
-	//	//tri.Centroid = (v0 + v1 + v2) / 3.0f;
-	//}
+	float split_delta = 0.02f;
 
-	//// Sort centroids by current axis
-	//std::sort(vertos.begin(), vertos.end(), [longest_side](const glm::vec3& t1, const glm::vec3& t2) { return t1[longest_side] < t2[longest_side]; });
+	#define SAH_PER_SIDE 1
 
-	//// Find the median splitting plane
-	//uint32_t medianIndex = vertos.size() / 2;
-	//float medianPlaneCoord = vertos[medianIndex][longest_side];
+#if SAH_PER_SIDE
+	for (uint32_t side = 0; side < 3; side++) {
+		SplitAxis side_enum = (side == 0 ? X_AXIS : (side == 1 ? Y_AXIS : Z_AXIS));
+#else
+	SplitAxis side_enum = longest_side;
+#endif //  SAH_PER_SIDE
+
+	float min_s = bounds.center[side_enum] - bounds.extends[side_enum];
+	float max_s = bounds.center[side_enum] + bounds.extends[side_enum];
+	float s_length = max_s - min_s;
+
+	for (float current_delta = split_delta; current_delta < 1.0f; current_delta += split_delta) {
+		float current_plane = min_s + s_length * current_delta;
+
+		boundingBox left_bb = node->bbox;
+		boundingBox right_bb = node->bbox;
+
+		left_bb.extends[side_enum] = (current_plane - min_s) * 0.5f;
+		right_bb.extends[side_enum] = (max_s - current_plane) * 0.5f;
+
+		float area_left = 8.0f * (left_bb.extends[0] * left_bb.extends[1] + left_bb.extends[1] * left_bb.extends[2] + left_bb.extends[0] * left_bb.extends[2]);
+		float area_right = 8.0f * (right_bb.extends[0] * right_bb.extends[1] + right_bb.extends[1] * right_bb.extends[2] + right_bb.extends[0] * right_bb.extends[2]);
+
+		// Count number of tris in each node now
+		uint32_t count_tris_left = 0, count_tris_right = 0;
+		for (int i = 0; i < num_tris; ++i) {
+			// Get min and max triangle values along desired axis.
+			float min_tri_val = getMinTriValue(tri_indices[i], side_enum);
+			float max_tri_val = getMaxTriValue(tri_indices[i], side_enum);
+			if (min_tri_val < current_plane) {
+				count_tris_left++;
+			}
+			if (max_tri_val >= current_plane) {
+				count_tris_right++;
+			}
+		}
+
+		float cost = cost_traversal + area_left * ((float)count_tris_left) * cost_intersect + area_right * ((float)count_tris_right) * cost_intersect;
+		if (cost < min_cost) {
+			min_cost = cost;
+			min_splitting_plane = current_plane;
+			min_cost_side = side_enum;
+		}
+	}
+#if SAH_PER_SIDE
+	}
+#endif //  SAH_PER_SIDE
+	
 
 
+	longest_side = min_cost_side;
+	float min_before = bounds.center[longest_side] - bounds.extends[longest_side];
+	float max_before = bounds.center[longest_side] + bounds.extends[longest_side];
+	float median_val = min_splitting_plane;
 
-
-	// Compute median value for longest side as well as "loose-fitting" bounding boxes.
-	float median_val = 0.0;
 	boundingBox left_bbox = node->bbox;
 	boundingBox right_bbox = node->bbox;
 
-	//median_val = bounds.min[longest_side] + ((bounds.max[longest_side] - bounds.min[longest_side]) / 2.0f);
-	//left_bbox.max[longest_side] = median_val;
-	//right_bbox.min[longest_side] = median_val;
 
-	median_val = bounds.center[longest_side];
-	left_bbox.center[longest_side] = median_val - bounds.extends[longest_side] * 0.5f;
-	left_bbox.extends[longest_side] = bounds.extends[longest_side] * 0.5f;
 
-	right_bbox.center[longest_side] = median_val + bounds.extends[longest_side] * 0.5f;
-	right_bbox.extends[longest_side] = bounds.extends[longest_side] * 0.5f;
+	//median_val = bounds.center[longest_side];
+
+	float left_extend = (median_val - min_before) * 0.5f;
+	float left_center = median_val - left_extend;
+
+	float right_extend = (max_before - median_val) * 0.5f;
+	float right_center = median_val + right_extend;
+
+
+	left_bbox.center[longest_side] = left_center;
+	left_bbox.extends[longest_side] = left_extend;
+
+	right_bbox.center[longest_side] = right_center;
+	right_bbox.extends[longest_side] = right_extend;
 
 
 	//if (medianPlaneCoord > bounds.min[longest_side] && medianPlaneCoord < bounds.max[longest_side]) {
@@ -297,6 +342,7 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 	//}
 
 
+	node->split_plane_axis = longest_side;
 	node->split_plane_value = median_val;
 
 
@@ -318,18 +364,8 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit( int num_tris, int *tri_ind
 	float min_tri_val, max_tri_val;
 	for ( int i = 0; i < num_tris; ++i ) {
 		// Get min and max triangle values along desired axis.
-		if ( longest_side == X_AXIS ) {
-			min_tri_val = getMinTriValue( tri_indices[i], X_AXIS );
-			max_tri_val = getMaxTriValue( tri_indices[i], X_AXIS );
-		}
-		else if ( longest_side == Y_AXIS ) {
-			min_tri_val = getMinTriValue( tri_indices[i], Y_AXIS );
-			max_tri_val = getMaxTriValue( tri_indices[i], Y_AXIS );
-		}
-		else {
-			min_tri_val = getMinTriValue( tri_indices[i], Z_AXIS );
-			max_tri_val = getMaxTriValue( tri_indices[i], Z_AXIS );
-		}
+		min_tri_val = getMinTriValue(tri_indices[i], longest_side);
+		max_tri_val = getMaxTriValue(tri_indices[i], longest_side);
 
 		// Update temp_left_tri_indices.
 		if ( min_tri_val < median_val ) {
@@ -397,20 +433,28 @@ bool KDTreeCPU::intersect( const glm::vec3 &ray_o, const glm::vec3 &ray_dir, flo
 	return intersect(root, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
 }
 
+
+
 // Private recursive call.
 bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const
 {
 	// Perform ray/AABB intersection test.
 	//bool intersects_aabb = Intersections::aabbIntersect2( curr_node->bbox, ray_o, ray_dir);
-	bool intersects_aabb = Intersections::aabbIntersect( curr_node->bbox, ray_o, ray_dir_inv);
+	float dist_aabb_near = INFINITYY;
+	float dist_aabb_far = INFINITYY;
+	bool intersects_aabb = Intersections::aabbIntersect( curr_node->bbox, ray_o, ray_dir_inv, dist_aabb_near, dist_aabb_far);
+
+	if (dist_aabb_near > t)
+		return false;
 
 	if ( intersects_aabb ) {
 		// If current node is a leaf node.
-		if ( !curr_node->left && !curr_node->right ) {
+		if ( !curr_node->left && !curr_node->right) {
 			// Check triangles for intersections.
 			bool intersection_detected = false;
 			for ( int i = 0; i < curr_node->num_tris; ++i ) {
 				int triIndex = curr_node->tri_indices[i];
+				//const glm::uvec3& tri = tris[triIndex];
 				const glm::uvec3& tri = tris[triIndex];
 				const glm::vec3& v0 = verts[tri[0]];
 				const glm::vec3& v1 = verts[tri[1]];
@@ -454,6 +498,40 @@ bool KDTreeCPU::intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const 
 	return false;
 }
 
+
+//bool KDTreeCPU::intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_dir, float& t, uint32_t& tri_index, float& u, float& v) const
+//{
+//	//t = INFINITYY;
+//
+//	//glm::vec3 ray_dir_inv(1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z);
+//
+//	//if (!Intersections::aabbIntersect(root->bbox, ray_o, ray_dir_inv, t))
+//	//	return false;
+//
+//	//bool root_is_leaf = (!root->left && !root->right);
+//	//if (root_is_leaf)
+//
+//
+//
+//	//std::vector<KDTreeNode*> nodesToCheck;
+//
+//
+//	//bool done = false;
+//
+//	//while (!done) {
+//	//	bool intersects_aabb = Intersections::aabbIntersect(root->bbox, ray_o, ray_dir_inv, t);
+//
+//	//	if (!intersects_aabb)
+//	//		return false;
+//
+//	//	//bool is_leaf = (!curr_node->left && !curr_node->right);
+//
+//	//}
+//
+//	//
+//
+//	return false;
+//}
 
 
 ////////////////////////////////////////////////////
