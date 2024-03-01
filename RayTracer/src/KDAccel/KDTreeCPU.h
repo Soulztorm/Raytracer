@@ -57,6 +57,8 @@ private:
 
 	KDTreeNode* constructTreeMedianSpaceSplit( int num_tris, int *tri_indices, boundingBox bounds, int curr_depth );
 
+	KDTreeNode* constructTreeStackless(int num_tris, int *tri_indices, boundingBox bounds );
+
 	// Private recursive traversal method.
 	bool intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const;
 

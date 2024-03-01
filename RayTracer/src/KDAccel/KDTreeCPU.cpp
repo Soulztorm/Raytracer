@@ -7,6 +7,8 @@
 
 #include "../Scene.h"
 
+#include <Walnut/Timer.h>
+
 
 ////////////////////////////////////////////////////
 // Constructor/destructor.
@@ -41,7 +43,8 @@ KDTreeCPU::KDTreeCPU(int num_tris, glm::uvec3* tris, int num_verts, glm::vec3* v
 	boundingBox bbox = computeTightFittingBoundingBox(num_verts, verts);
 
 	// Build kd-tree and set root node.
-	root = constructTreeMedianSpaceSplit(num_tris, tri_indices, bbox, 1);
+	//root = constructTreeMedianSpaceSplit(num_tris, tri_indices, bbox, 1);
+	root = constructTreeStackless(num_tris, tri_indices, bbox);
 
 	// build rope structure
 	//KDTreeNode* ropes[6] = { NULL };
@@ -248,14 +251,14 @@ KDTreeNode* KDTreeCPU::constructTreeMedianSpaceSplit(int num_tris, int* tri_indi
 
 
 	// Find best splitting plane through SAH
-	float cost_traversal = 5.0f;
-	float cost_intersect = 2000.0f;
+	float cost_traversal = 1.5f;
+	float cost_intersect = 1.0f;
 
 	SplitAxis min_cost_side = longest_side;
 	float min_cost = INFINITYY;
 	float min_splitting_plane = 0.0f;
 
-	float split_delta = 0.02f;
+	float split_delta = 0.01f;
 
 #define SAH_PER_SIDE 1
 
@@ -416,6 +419,216 @@ node->id = num_nodes;
 ++num_nodes;
 
 return node;
+}
+
+KDTreeNode* KDTreeCPU::constructTreeStackless(int num_tris, int* tri_indices, boundingBox bounds)
+{
+	std::deque<KDTreeNode*> nodesToSplit;
+	int num_nodes = 1;
+
+	// Create new node.
+	KDTreeNode* root_node = new KDTreeNode();
+	root_node->num_tris = num_tris;
+	root_node->tri_indices = tri_indices;
+	root_node->bbox = bounds;
+	root_node->id = 0;
+
+	if (num_tris <= NUM_TRIS_PER_NODE)
+		return root_node;
+
+	nodesToSplit.push_back(root_node);
+
+
+	while (!nodesToSplit.empty()) {
+		KDTreeNode* node = nodesToSplit.back();
+		nodesToSplit.pop_back();
+
+		int currentDepth = node->id;
+
+		if (node->num_tris <= NUM_TRIS_PER_NODE || node->id >= MAX_DEPTH)
+			continue;
+
+		// Get longest side of bounding box.
+		SplitAxis longest_side = getLongestBoundingBoxSide(node->bbox);
+
+
+		// Find best splitting plane through SAH
+		float cost_traversal = 1.5f;
+		float cost_intersect = 1.0f;
+
+		SplitAxis min_cost_side = longest_side;
+		float min_cost = INFINITYY;
+		float min_splitting_plane = 0.0f;
+
+		float split_delta = 0.01f;
+
+
+		#define SAH_PER_SIDE2 1
+
+		#if SAH_PER_SIDE2
+		for (uint32_t side = 0; side < 3; side++) {
+			SplitAxis side_enum = (side == 0 ? X_AXIS : (side == 1 ? Y_AXIS : Z_AXIS));
+		#else
+			SplitAxis side_enum = longest_side;
+		#endif //  SAH_PER_SIDE
+			float min_s = node->bbox.center[side_enum] - node->bbox.extends[side_enum];
+			float max_s = node->bbox.center[side_enum] + node->bbox.extends[side_enum];
+			float s_length = max_s - min_s;
+
+			for (float current_delta = split_delta; current_delta < 1.0f; current_delta += split_delta) {
+				float current_plane = min_s + s_length * current_delta;
+
+				boundingBox left_bb = node->bbox;
+				boundingBox right_bb = node->bbox;
+
+				left_bb.extends[side_enum] = (current_plane - min_s) * 0.5f;
+				right_bb.extends[side_enum] = (max_s - current_plane) * 0.5f;
+
+				float area_left = 8.0f * (left_bb.extends[0] * left_bb.extends[1] + left_bb.extends[1] * left_bb.extends[2] + left_bb.extends[0] * left_bb.extends[2]);
+				float area_right = 8.0f * (right_bb.extends[0] * right_bb.extends[1] + right_bb.extends[1] * right_bb.extends[2] + right_bb.extends[0] * right_bb.extends[2]);
+
+				// Count number of tris in each node now
+				uint32_t count_tris_left = 0, count_tris_right = 0;
+				for (int i = 0; i < node->num_tris; ++i) {
+					// Get min and max triangle values along desired axis.
+					float min_tri_val = getMinTriValue(node->tri_indices[i], side_enum);
+					float max_tri_val = getMaxTriValue(node->tri_indices[i], side_enum);
+					if (min_tri_val < current_plane) {
+						count_tris_left++;
+					}
+					if (max_tri_val >= current_plane) {
+						count_tris_right++;
+					}
+				}
+
+				// This split does nothing, try the next
+				//if (count_tris_left == node->num_tris || count_tris_right == node->num_tris)
+				//	continue;
+
+				float cost = cost_traversal + area_left * ((float)count_tris_left) * cost_intersect + area_right * ((float)count_tris_right) * cost_intersect;
+				if (cost < min_cost) {
+					min_cost = cost;
+					min_splitting_plane = current_plane;
+					min_cost_side = side_enum;
+				}
+			}
+#if SAH_PER_SIDE2
+		}
+#endif
+
+
+		longest_side = min_cost_side;
+		float min_before = node->bbox.center[longest_side] - node->bbox.extends[longest_side];
+		float max_before = node->bbox.center[longest_side] + node->bbox.extends[longest_side];
+		float median_val = min_splitting_plane;
+
+		boundingBox left_bbox = node->bbox;
+		boundingBox right_bbox = node->bbox;
+
+
+		float left_extend = (median_val - min_before) * 0.5f;
+		float left_center = median_val - left_extend;
+
+		float right_extend = (max_before - median_val) * 0.5f;
+		float right_center = median_val + right_extend;
+
+
+		left_bbox.center[longest_side] = left_center;
+		left_bbox.extends[longest_side] = left_extend;
+
+		right_bbox.center[longest_side] = right_center;
+		right_bbox.extends[longest_side] = right_extend;
+
+
+		node->split_plane_axis = longest_side;
+		node->split_plane_value = median_val;
+
+
+		// Allocate and initialize memory for temporary buffers to hold triangle indices for left and right subtrees.
+		int* temp_left_tri_indices = new int[node->num_tris];
+		int* temp_right_tri_indices = new int[node->num_tris];
+
+		// Populate temporary buffers.
+		int left_tri_count = 0, right_tri_count = 0;
+		float min_tri_val, max_tri_val;
+		for (int i = 0; i < node->num_tris; ++i) {
+			// Get min and max triangle values along desired axis.
+			min_tri_val = getMinTriValue(node->tri_indices[i], longest_side);
+			max_tri_val = getMaxTriValue(node->tri_indices[i], longest_side);
+
+			// Update temp_left_tri_indices.
+			if (min_tri_val < median_val) {
+				temp_left_tri_indices[i] = node->tri_indices[i];
+				++left_tri_count;
+			}
+			else {
+				temp_left_tri_indices[i] = -1;
+			}
+
+			// Update temp_right_tri_indices.
+			if (max_tri_val >= median_val) {
+				temp_right_tri_indices[i] = node->tri_indices[i];
+				++right_tri_count;
+			}
+			else {
+				temp_right_tri_indices[i] = -1;
+			}
+		}
+
+		// Allocate memory for lists of triangle indices for left and right subtrees.
+		int* left_tri_indices = new int[left_tri_count];
+		int* right_tri_indices = new int[right_tri_count];
+
+		// Populate lists of triangle indices.
+		int left_index = 0, right_index = 0;
+		for (int i = 0; i < node->num_tris; ++i) {
+			if (temp_left_tri_indices[i] != -1) {
+				left_tri_indices[left_index] = temp_left_tri_indices[i];
+				++left_index;
+			}
+			if (temp_right_tri_indices[i] != -1) {
+				right_tri_indices[right_index] = temp_right_tri_indices[i];
+				++right_index;
+			}
+		}
+
+		// Free temporary triangle indices buffers.
+		delete[] temp_left_tri_indices;
+		delete[] temp_right_tri_indices;
+
+		
+		if (left_tri_count > 0) {
+			node->left = new KDTreeNode();
+			node->left->num_tris = left_tri_count;
+			node->left->tri_indices = left_tri_indices;
+			node->left->bbox = left_bbox;
+			node->left->id = currentDepth + 1;
+			node->left->split_plane_axis = min_cost_side;
+			nodesToSplit.push_back(node->left);
+			num_nodes++;
+		}
+
+		if (right_tri_count > 0) {
+			node->right = new KDTreeNode();
+			node->right->num_tris = right_tri_count;
+			node->right->tri_indices = right_tri_indices;
+			node->right->bbox = right_bbox;
+			node->right->id = currentDepth + 1;
+			node->right->split_plane_axis = min_cost_side;
+			nodesToSplit.push_back(node->right);
+			num_nodes++;
+		}
+
+		//if (node->num_tris > left_index) {
+
+		//}
+		//if (node->num_tris > right_index) {
+
+		//}
+	}
+
+	std::cout << "Node count: " << num_nodes;
+	return root_node;
 }
 
 
