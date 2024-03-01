@@ -20,10 +20,10 @@ Intersections::~Intersections()
 // Implementation inspired by zacharmarz.
 // https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
 ////////////////////////////////////////////////////
-bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_o, const glm::vec3& ray_dir_inv, float& t_near)
+bool Intersections::aabbIntersect(const boundingBox& bbox, Ray* ray, float& t_near)
 {
-	glm::vec3 l1 = (bbox.center - ray_o) * ray_dir_inv;
-	glm::vec3 l2 = bbox.extends * ray_dir_inv;
+	glm::vec3 l1 = (bbox.center - ray->Origin) * ray->DirectionInverse;
+	glm::vec3 l2 = bbox.extends * ray->DirectionInverse;
 	//glm::vec3 tMin = (bbox.center - ray_o - bbox.extends) * ray_dir_inv;
 	//glm::vec3 tMax = (bbox.center - ray_o + bbox.extends) * ray_dir_inv;
 
@@ -53,12 +53,12 @@ bool Intersections::aabbIntersect(const boundingBox& bbox, const glm::vec3& ray_
 // Implementation inspired by Tomas Moller: http://www.graphics.cornell.edu/pubs/1997/MT97.pdf
 // Additional algorithm details: http://www.lighthouse3d.com/tutorials/maths/ray-triangle-intersection/
 ////////////////////////////////////////////////////
-bool Intersections::triIntersect(const glm::vec3& ray_o, const glm::vec3& ray_dir, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, float &t, float& _u, float& _v)
+bool Intersections::triIntersect(Ray* ray, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, float &t, float& _u, float& _v)
 {
 	glm::vec3 e1 = v1 - v0;
 	glm::vec3 e2 = v2 - v0;
 
-	glm::vec3 h = glm::cross( ray_dir, e2 );
+	glm::vec3 h = glm::cross( ray->Direction, e2 );
 	float a = glm::dot( e1, h );
 
 	if ( a > -0.00001f && a < 0.00001f) {
@@ -66,7 +66,7 @@ bool Intersections::triIntersect(const glm::vec3& ray_o, const glm::vec3& ray_di
 	}
 
 	float f = 1.0f / a;
-	glm::vec3 s = ray_o - v0;
+	glm::vec3 s = ray->Origin - v0;
 	float u = f * glm::dot( s, h );
 
 	if ( u < 0.0f || u > 1.0f ) {
@@ -74,7 +74,7 @@ bool Intersections::triIntersect(const glm::vec3& ray_o, const glm::vec3& ray_di
 	}
 
 	glm::vec3 q = glm::cross( s, e1 );
-	float v = f * glm::dot( ray_dir, q );
+	float v = f * glm::dot( ray->Direction, q );
 
 	if ( v < 0.0f || u + v > 1.0f ) {
 		return false;

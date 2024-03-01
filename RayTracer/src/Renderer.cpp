@@ -148,8 +148,10 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 	for (size_t i = 0; i < m_settings.Bounces; i++)
 	{
+		ray.DirectionInverse = glm::vec3(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
+
 		// Shoot ray into scene
-		HitData hitdata = TraceRay(ray);
+		HitData hitdata = TraceRay(&ray);
 
 		// no hit
 		if (hitdata.Distance < 0.0f) {
@@ -226,7 +228,7 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	return finalColor;
 }
 
-Renderer::HitData Renderer::TraceRay(const Ray& ray)
+Renderer::HitData Renderer::TraceRay(Ray* ray)
 {
 	float closestDistSpheres = FLT_MAX;
 	int closestSphereIndex = -1;
@@ -241,7 +243,7 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 	if (m_settings.UseSphereScene) {
 		// Sphere intersections
 		// Only dependant on ray direction
-		float a = glm::dot(ray.Direction, ray.Direction);
+		float a = glm::dot(ray->Direction, ray->Direction);
 		float dbl_a = (2.0f * a);
 
 		// Loop through scene to find closest hit (if any)
@@ -249,9 +251,9 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		{
 			const Sphere& sphere = m_activeScene->spheres[i];
 
-			glm::vec3 rayOrigin = ray.Origin - sphere.Position;
+			glm::vec3 rayOrigin = ray->Origin - sphere.Position;
 
-			float b = 2.0f * glm::dot(rayOrigin, ray.Direction);
+			float b = 2.0f * glm::dot(rayOrigin, ray->Direction);
 			float c = glm::dot(rayOrigin, rayOrigin) - sphere.Radius * sphere.Radius;
 
 			float discriminant = b * b - 4.0f * a * c;
@@ -274,7 +276,8 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 		float v = 0.0f;
 
 		uint32_t hitIndex = 0;
-		if (m_activeScene->kd_tree->intersect(ray.Origin, ray.Direction, t, hitIndex, u, v)) {
+
+		if (m_activeScene->kd_tree->intersect(ray, t, hitIndex, u, v)) {
 			closestDistTriangles = t;
 			closestTriangleIndex = hitIndex;
 			closestTriangle_u = u;
@@ -297,11 +300,11 @@ Renderer::HitData Renderer::TraceRay(const Ray& ray)
 	return ClosestHitTriangle(ray, closestDistTriangles, closestTriangleIndex, closestTriangle_u, closestTriangle_v);
 }
 
-Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex)
+Renderer::HitData Renderer::ClosestHitSphere(Ray* ray, float distance, uint32_t objectIndex)
 {
 	HitData hitdata;
 
-	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
+	glm::vec3 hitPoint = ray->Origin + ray->Direction * distance;
 	glm::vec3 normal = glm::normalize(hitPoint - m_activeScene->spheres[objectIndex].Position);
 
 	// Set hit data
@@ -313,9 +316,9 @@ Renderer::HitData Renderer::ClosestHitSphere(const Ray& ray, float distance, uin
 	return hitdata;
 }
 
-Renderer::HitData Renderer::ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v)
+Renderer::HitData Renderer::ClosestHitTriangle(Ray* ray, float distance, uint32_t objectIndex, float u, float v)
 {
-	glm::vec3 hitPoint = ray.Origin + ray.Direction * distance;
+	glm::vec3 hitPoint = ray->Origin + ray->Direction * distance;
 	glm::vec3 nrm = (1.0f - u - v) * m_activeScene->triangles[objectIndex].Normals[0] + u * m_activeScene->triangles[objectIndex].Normals[1] + v * m_activeScene->triangles[objectIndex].Normals[2];
 
 	// Set hit data

@@ -134,11 +134,11 @@ private:
 
 	// Methods
 	glm::vec3 PerPixel(uint32_t x, uint32_t y);
-	HitData TraceRay(const Ray& ray);
+	HitData TraceRay(Ray* ray);
 
 	HitData Miss();
-	HitData ClosestHitSphere(const Ray& ray, float distance, uint32_t objectIndex);
-	HitData ClosestHitTriangle(const Ray& ray, float distance, uint32_t objectIndex, float u, float v);
+	HitData ClosestHitSphere(Ray* ray, float distance, uint32_t objectIndex);
+	HitData ClosestHitTriangle(Ray* ray, float distance, uint32_t objectIndex, float u, float v);
 
 	bool RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& normal, const glm::vec3& intersection_point, float IOR, Ray& ray_out);
 

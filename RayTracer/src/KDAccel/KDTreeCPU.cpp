@@ -637,24 +637,21 @@ KDTreeNode* KDTreeCPU::constructTreeStackless(int num_tris, int* tri_indices, bo
 ////////////////////////////////////////////////////
 
 // Public-facing wrapper method.
-bool KDTreeCPU::intersect(const glm::vec3& ray_o, const glm::vec3& ray_dir, float& t, uint32_t& tri_index, float& u, float& v) const
+bool KDTreeCPU::intersect(Ray* ray, float& t, uint32_t& tri_index, float& u, float& v) const
 {
 	t = INFINITYY;
-
-	glm::vec3 ray_dir_inv(1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z);
-
-	return intersect(root, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
+	return intersect(root, ray, t, tri_index, u, v);
 }
 
 
 
 // Private recursive call.
-bool KDTreeCPU::intersect(KDTreeNode* curr_node, const glm::vec3& ray_o, const glm::vec3& ray_dir, const glm::vec3& ray_dir_inv, float& t, uint32_t& tri_index, float& u, float& v) const
+bool KDTreeCPU::intersect(KDTreeNode* curr_node, Ray* ray, float& t, uint32_t& tri_index, float& u, float& v) const
 {
 	// Perform ray/AABB intersection test.
 	//bool intersects_aabb = Intersections::aabbIntersect2( curr_node->bbox, ray_o, ray_dir);
 	float dist_aabb_near = INFINITYY;
-	bool intersects_aabb = Intersections::aabbIntersect(curr_node->bbox, ray_o, ray_dir_inv, dist_aabb_near);
+	bool intersects_aabb = Intersections::aabbIntersect(curr_node->bbox, ray, dist_aabb_near);
 
 	if (dist_aabb_near > t)
 		return false;
@@ -676,7 +673,7 @@ bool KDTreeCPU::intersect(KDTreeNode* curr_node, const glm::vec3& ray_o, const g
 				float tmp_t = INFINITYY;
 				float tmp_u = 0.0f;
 				float tmp_v = 0.0f;
-				bool intersects_tri = Intersections::triIntersect(ray_o, ray_dir, v0, v1, v2, tmp_t, tmp_u, tmp_v);
+				bool intersects_tri = Intersections::triIntersect(ray, v0, v1, v2, tmp_t, tmp_u, tmp_v);
 
 
 				// intersects and no backface was hit
@@ -698,10 +695,10 @@ bool KDTreeCPU::intersect(KDTreeNode* curr_node, const glm::vec3& ray_o, const g
 		else {
 			bool hit_left = false, hit_right = false;
 			if (curr_node->left) {
-				hit_left = intersect(curr_node->left, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
+				hit_left = intersect(curr_node->left, ray, t, tri_index, u, v);
 			}
 			if (curr_node->right) {
-				hit_right = intersect(curr_node->right, ray_o, ray_dir, ray_dir_inv, t, tri_index, u, v);
+				hit_right = intersect(curr_node->right, ray, t, tri_index, u, v);
 			}
 			return hit_left || hit_right;
 		}
@@ -711,12 +708,9 @@ bool KDTreeCPU::intersect(KDTreeNode* curr_node, const glm::vec3& ray_o, const g
 }
 
 
-bool KDTreeCPU::intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_dir, float& t, uint32_t& tri_index, float& u, float& v) const
+bool KDTreeCPU::intersectStackless(Ray* ray, float& t, uint32_t& tri_index, float& u, float& v) const
 {
 	t = INFINITYY;
-
-	glm::vec3 ray_dir_inv(1.0f / ray_dir.x, 1.0f / ray_dir.y, 1.0f / ray_dir.z);
-
 
 	std::deque<KDTreeNode*> currentNodeQueue;
 	currentNodeQueue.push_back(root);
@@ -729,7 +723,7 @@ bool KDTreeCPU::intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_
 		currentNodeQueue.pop_back();
 
 		float dist_aabb_near = INFINITYY;
-		bool intersects_aabb = Intersections::aabbIntersect(node->bbox, ray_o, ray_dir_inv, dist_aabb_near);
+		bool intersects_aabb = Intersections::aabbIntersect(node->bbox, ray, dist_aabb_near);
 
 		if (!intersects_aabb || dist_aabb_near > t)
 			continue;
@@ -748,7 +742,7 @@ bool KDTreeCPU::intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_
 				float tmp_t = INFINITYY;
 				float tmp_u = 0.0f;
 				float tmp_v = 0.0f;
-				bool intersects_tri = Intersections::triIntersect(ray_o, ray_dir, v0, v1, v2, tmp_t, tmp_u, tmp_v);
+				bool intersects_tri = Intersections::triIntersect(ray, v0, v1, v2, tmp_t, tmp_u, tmp_v);
 
 
 				// intersects and no backface was hit

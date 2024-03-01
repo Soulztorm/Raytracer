@@ -4,6 +4,7 @@
 
 #include <limits>
 #include "KDTreeStructs.h"
+#include "../Ray.h"
 
 
 ////////////////////////////////////////////////////
@@ -26,8 +27,8 @@ public:
 	~KDTreeCPU( void );
 
 	// Public traversal method that begins recursive search.
-	bool intersect( const glm::vec3 &ray_o, const glm::vec3 &ray_dir, float &t, uint32_t& tri_index, float& u, float& v) const;	
-	bool intersectStackless(const glm::vec3& ray_o, const glm::vec3& ray_dir, float& t, uint32_t& tri_index, float& u, float& v) const;
+	bool intersect( Ray* ray, float &t, uint32_t& tri_index, float& u, float& v) const;	
+	bool intersectStackless(Ray* ray, float& t, uint32_t& tri_index, float& u, float& v) const;
 
 	// kd-tree getters.
 	KDTreeNode* getRootNode( void ) const;
@@ -60,7 +61,7 @@ private:
 	KDTreeNode* constructTreeStackless(int num_tris, int *tri_indices, boundingBox bounds );
 
 	// Private recursive traversal method.
-	bool intersect( KDTreeNode *curr_node, const glm::vec3 &ray_o, const glm::vec3 &ray_dir, const glm::vec3& ray_dir_inv, float &t, uint32_t& tri_index, float& u, float& v) const;
+	bool intersect( KDTreeNode *curr_node, Ray* ray, float &t, uint32_t& tri_index, float& u, float& v) const;
 
 	// Bounding box getters.
 	SplitAxis getLongestBoundingBoxSide(const boundingBox& bbox);
