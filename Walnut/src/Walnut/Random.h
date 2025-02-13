@@ -55,7 +55,7 @@ namespace Walnut {
 
 		static glm::vec3 InUnitSphere()
 		{
-			return glm::normalize(Vec3(-1.0f, 1.0f));
+			return glm::normalize(glm::vec3(Float() * 2.0f - 1.0f, Float() * 2.0f - 1.0f, Float() * 2.0f - 1.0f));
 		}
 	private:
 		static thread_local RNG s_RandomEngine;

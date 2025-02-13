@@ -20,15 +20,16 @@ public:
 	BVH(const Scene& scene);
 	HitInfo IntersectRay(Ray* ray);
 
-	size_t GetNodeCount() { return allNodes.size(); }
+	size_t GetNodeCount() { return m_nodes.size(); }
 
 protected:
 	void Split(int parentIndex, int triIndex, int triNum, int depth = 0);
 	SplitInfo ChooseSplitAxis(const BoundingBox& boundingBox, int triIndex, int triNum);
 
-	std::vector<Node> allNodes;
-	std::vector<TriangleOBJ> allTriangles;
-	std::vector<TriangleOptimized> allTrianglesOptimized;
+	std::vector<TriangleOBJ> m_trianglesOBJ;
+
+	std::vector<Node> m_nodes;
+	std::vector<TriangleOptimized> m_trianglesOptimized;
 
 };
 

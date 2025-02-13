@@ -8,14 +8,8 @@
 
 #include "Ray.h"
 
-
 using namespace Walnut;
 
-const float EPSILON = 0.0002f;
-
-Renderer::Renderer()
-{
-}
 
 void Renderer::OnResize(uint32_t width, uint32_t height)
 {
@@ -57,7 +51,7 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec3));
 
 
-	std::for_each(std::execution::seq, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
+	std::for_each(std::execution::par_unseq, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
 	{
 		for (uint32_t x = 0; x < width; x++)
 		{
@@ -149,9 +143,10 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 			//float fresnel = glm::dot(ray.Direction, -normalSurface);
 			float fresnel = glm::dot(ray.Direction, -hit.normal);
 
-			if (Random::Float() < fresnel) {
+			//if (Walnut::Random::Float() < fresnel) {
+			//if (Random::Float() < fresnel) {
 				doTransmission = true;
-			}
+			//}
 		}
 
 
@@ -168,10 +163,10 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 			}
 		}
 		else {
-			glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Util::RandomUnitVector());
+			//glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Util::RandomUnitVector());
+			glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Walnut::Random::InUnitSphere());
 			glm::vec3 reflectedVector = glm::reflect(ray.Direction, hit.normal);
 			reflectedVector = glm::normalize(glm::mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
-
 
 			//glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
 			//glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
@@ -189,7 +184,7 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 		// Survivors have their value boosted to make up for fewer samples being in the average.
 		{
 			float p = std::max(contribution.r, std::max(contribution.g, contribution.b));
-			if (Random::Float() > p)
+			if (Walnut::Random::Float() > p)
 				break;
 
 			// Add the energy we 'lose' by randomly terminating paths
@@ -228,7 +223,7 @@ bool Renderer::RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& norma
 		return false;
 	}
 	else {
-		ray_out.Origin = intersection_point + (ref_n * -EPSILON);
+		ray_out.Origin = intersection_point + (ref_n * -FLT_EPSILON);
 		ray_out.Direction = glm::normalize((ray_dir_in + i_dot_n * ref_n) * eta - ref_n * std::sqrt(k));
 		return true;
 	}

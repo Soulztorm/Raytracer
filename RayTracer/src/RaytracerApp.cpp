@@ -55,7 +55,7 @@ public:
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
-		if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed2.obj", config)) {
+		if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed.obj", config)) {
 		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Sphere.obj", config)) {
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();

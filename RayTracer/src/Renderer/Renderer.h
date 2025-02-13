@@ -109,9 +109,6 @@ public:
 	};
 	Settings& GetSettings() { return m_settings; }
 
-	// Constructor
-	Renderer();
-
 	void Render(Scene* scene, BVH* bvh, Camera* camera);
 	void OnResize(uint32_t width, uint32_t height);
 

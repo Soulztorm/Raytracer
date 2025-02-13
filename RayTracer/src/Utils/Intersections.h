@@ -12,16 +12,10 @@ struct BVHHitInfo {
 	int triIndex = -1;
 };
 
-struct TriHitInfo {
-	float dist = FLT_MAX;
-	float u = 0.0f;
-	float v = 0.0f;
-};
-
 class Intersections
 {
 public:
 	static float intersectBB(const BoundingBox& bbox, Ray* ray);
-	static bool intersectTri(const TriangleOptimized& tri, Ray* ray, TriHitInfo& hitInfo);
-	static bool intersectTri2(const TriangleOptimized& tri, Ray* ray, TriHitInfo& hitInfo);
+	static bool intersectTri(const TriangleOptimized& tri, Ray* ray, BVHHitInfo& hitInfo);
+	static bool intersectTri2(const TriangleOptimized& tri, Ray* ray, BVHHitInfo& hitInfo);
 };

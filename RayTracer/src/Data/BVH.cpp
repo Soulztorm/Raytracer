@@ -4,26 +4,33 @@
 
 BVH::BVH(const Scene& scene)
 {
-	allTriangles = scene.triangles;
+	m_trianglesOBJ = scene.triangles;
 
 	// Create root node
 	Node root;
-	for (const auto& tri : allTriangles) {
+	for (const auto& tri : m_trianglesOBJ) {
 		root.boundingBox.growToInclude(tri);
 	}
 
-	allNodes.push_back(root);
+	m_nodes.push_back(root);
 
 	Split(0, 0, static_cast<int>(scene.triangles.size()));
 
-	for (const auto& tri : allTriangles) {
+	for (const auto& tri : m_trianglesOBJ) {
 		TriangleOptimized triOpt;
 		triOpt.v0 = tri.Vertices[0];
 		triOpt.e1 = tri.Vertices[1] - tri.Vertices[0];
 		triOpt.e2 = tri.Vertices[2] - tri.Vertices[0]; 
-		allTrianglesOptimized.push_back(triOpt);
-	}
+		
+		triOpt.normal0 = tri.Normals[0];
+		triOpt.normal1 = tri.Normals[1];
+		triOpt.normal2 = tri.Normals[2];
 
+		triOpt.materialIndex = tri.MaterialIndex;
+
+		m_trianglesOptimized.push_back(triOpt);
+	}
+	m_trianglesOBJ.clear();
 }
 
 HitInfo BVH::IntersectRay(Ray* ray)
@@ -34,18 +41,14 @@ HitInfo BVH::IntersectRay(Ray* ray)
 	nodeStack[stackIndex++] = 0;
 
 	while (stackIndex > 0) {
-		const Node& currentNode = allNodes[nodeStack[--stackIndex]];
-
-		//float currentNodeDist = Intersections::intersectBB(currentNode.boundingBox, ray);
-		//if (currentNodeDist > hitInfo.dist)
-		//	continue;
+		const Node& currentNode = m_nodes[nodeStack[--stackIndex]];
 
 		bool isLeaf = (currentNode.triangleCount > 0);
 		if (isLeaf) {
 			// Check all triangles in leaf
-			TriHitInfo triHit;
+			BVHHitInfo triHit;
 			for (int i = currentNode.index; i < currentNode.index + currentNode.triangleCount; i++) {
-				bool didHit = Intersections::intersectTri2(allTrianglesOptimized[i], ray, triHit);
+				bool didHit = Intersections::intersectTri(m_trianglesOptimized[i], ray, triHit);
 				if (didHit && triHit.dist < hitInfo.dist) {
 					hitInfo.triIndex = i;
 					hitInfo.dist = triHit.dist;
@@ -58,8 +61,8 @@ HitInfo BVH::IntersectRay(Ray* ray)
 			int childIndexA = currentNode.index;
 			int childIndexB = currentNode.index + 1;
 
-			float dstA = Intersections::intersectBB(allNodes[childIndexA].boundingBox, ray);
-			float dstB = Intersections::intersectBB(allNodes[childIndexB].boundingBox, ray);
+			float dstA = Intersections::intersectBB(m_nodes[childIndexA].boundingBox, ray);
+			float dstB = Intersections::intersectBB(m_nodes[childIndexB].boundingBox, ray);
 
 			// We want to look at closest child node first, so push it last
 			bool isNearestA = dstA <= dstB;
@@ -78,9 +81,9 @@ HitInfo BVH::IntersectRay(Ray* ray)
 
 	// If we hit something, work out the position, normal and material
 	if (hitInfo.triIndex >= 0) {
-		returnHit.materialIndex = allTriangles[hitInfo.triIndex].MaterialIndex;
 		returnHit.position = ray->Origin + ray->Direction * hitInfo.dist;
-		returnHit.normal = glm::normalize((1.0f - hitInfo.u - hitInfo.v) * allTriangles[hitInfo.triIndex].Normals[0] + hitInfo.u * allTriangles[hitInfo.triIndex].Normals[1] + hitInfo.v * allTriangles[hitInfo.triIndex].Normals[2]);
+		returnHit.normal = (1.0f - hitInfo.u - hitInfo.v) * m_trianglesOptimized[hitInfo.triIndex].normal0 + hitInfo.u * m_trianglesOptimized[hitInfo.triIndex].normal1 + hitInfo.v * m_trianglesOptimized[hitInfo.triIndex].normal2;
+		returnHit.materialIndex = m_trianglesOptimized[hitInfo.triIndex].materialIndex;
 	}
 
 	return returnHit;
@@ -90,24 +93,26 @@ HitInfo BVH::IntersectRay(Ray* ray)
 void BVH::Split(int parentIndex, int triIndex, int triNum, int depth)
 {
 	const int MaxDepth = 32;
-	Node* parent = &(allNodes[parentIndex]);
+	Node* parent = &(m_nodes[parentIndex]);
 
 	float parentCost = triNum * parent->boundingBox.getArea();
-	SplitInfo bestSplit = ChooseSplitAxis(allNodes[parentIndex].boundingBox, triIndex, triNum);
+	// Surface Area Heuristic split
+	SplitInfo bestSplit = ChooseSplitAxis(m_nodes[parentIndex].boundingBox, triIndex, triNum);
 
+	// Not to deep, and the split would improve cost
 	if (depth < MaxDepth && bestSplit.cost < parentCost) {
 		BoundingBox bbLeft, bbRight;
 		int triCountLeft = 0;
 
 		for (int i = triIndex; i < triIndex + triNum; i++) {
-			const TriangleOBJ& tri = allTriangles[i];
+			const TriangleOBJ& tri = m_trianglesOBJ[i];
 
 			if (tri.Center[bestSplit.axis] < bestSplit.plane) {
 				bbLeft.growToInclude(tri);
 
-				TriangleOBJ swapTri = allTriangles[triIndex + triCountLeft];
-				allTriangles[triIndex + triCountLeft] = tri;
-				allTriangles[i] = swapTri;
+				TriangleOBJ swapTri = m_trianglesOBJ[triIndex + triCountLeft];
+				m_trianglesOBJ[triIndex + triCountLeft] = tri;
+				m_trianglesOBJ[i] = swapTri;
 				triCountLeft++;
 			}
 			else {
@@ -121,20 +126,20 @@ void BVH::Split(int parentIndex, int triIndex, int triNum, int depth)
 		Node leftChild = { bbLeft, triIndex, 0 };
 		Node rightChild = { bbRight, triStartRight, 0 };
 
-		allNodes.push_back(leftChild);
-		int childIndexLeft = static_cast<int>(allNodes.size() - 1);
-		allNodes.push_back(rightChild);
-		int childIndexRight = static_cast<int>(allNodes.size() - 1);
+		m_nodes.push_back(leftChild);
+		m_nodes.push_back(rightChild);
+		int childIndexLeft = static_cast<int>(m_nodes.size() - 2);
+		int childIndexRight = static_cast<int>(m_nodes.size() - 1);
 
-		allNodes[parentIndex].index = childIndexLeft;
+		m_nodes[parentIndex].index = childIndexLeft;
 
 		Split(childIndexLeft, triIndex, triCountLeft, depth + 1);
 		Split(childIndexRight, triIndex + triCountLeft, triCountRight, depth + 1);
 	}
 	// Leaf node
 	else {
-		allNodes[parentIndex].index = triIndex;
-		allNodes[parentIndex].triangleCount = triNum;
+		m_nodes[parentIndex].index = triIndex;
+		m_nodes[parentIndex].triangleCount = triNum;
 	}
 }
 
@@ -149,7 +154,6 @@ SplitInfo BVH::ChooseSplitAxis(const BoundingBox& boundingBox, int triIndex, int
 
 	for (char splitAxis = 0; splitAxis < 3; splitAxis++) {
 		for (float delta = 0.0f; delta < 1.0f; delta += 0.1f) {
-			//float splitPlane = boundingBox.min[splitAxis] + delta * (boundingBox.max[splitAxis] - boundingBox.min[splitAxis]);
 			float splitPlane = boundingBox.center[splitAxis] - boundingBox.extends[splitAxis] + delta * boundingBox.extends[splitAxis] * 2.0f;
 
 			int triCountLeft = 0;
@@ -158,7 +162,7 @@ SplitInfo BVH::ChooseSplitAxis(const BoundingBox& boundingBox, int triIndex, int
 			BoundingBox bbLeft, bbRight;
 
 			for (int i = triIndex; i < triIndex + triNum; i++) {
-				const TriangleOBJ& tri = allTriangles[i];
+				const TriangleOBJ& tri = m_trianglesOBJ[i];
 				if (tri.Center[splitAxis] < splitPlane) {
 					bbLeft.growToInclude(tri);
 					triCountLeft++;

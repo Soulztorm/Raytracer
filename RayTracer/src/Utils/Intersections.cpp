@@ -1,6 +1,5 @@
 #include "Intersections.h"
 
-
 ////////////////////////////////////////////////////
 // Fast ray/AABB intersection test.
 // Implementation inspired by zacharmarz.
@@ -8,11 +7,6 @@
 ////////////////////////////////////////////////////
 float Intersections::intersectBB(const BoundingBox& bbox, Ray* ray)
 {
-	//glm::vec3 bbcenter = 0.5f * (bbox->min + bbox->max);
-	//glm::vec3 bbextends = 0.5f * (bbox->max - bbox->min);
-	//glm::vec3 l1 = (bbcenter - ray->Origin) * ray->DirectionInverse;
-	//glm::vec3 l2 = bbextends * ray->DirectionInverse;
-	
 	glm::vec3 l1 = (bbox.center - ray->Origin) * ray->DirectionInverse;
 	glm::vec3 l2 = bbox.extends * ray->DirectionInverse;
 
@@ -34,13 +28,12 @@ float Intersections::intersectBB(const BoundingBox& bbox, Ray* ray)
 	return tNear;
 }
 
-
 ////////////////////////////////////////////////////
 // Fast, minimum storage ray/triangle intersection test.
 // Implementation inspired by Tomas Moller: http://www.graphics.cornell.edu/pubs/1997/MT97.pdf
 // Additional algorithm details: http://www.lighthouse3d.com/tutorials/maths/ray-triangle-intersection/
 ////////////////////////////////////////////////////
-bool Intersections::intersectTri(const TriangleOptimized& tri, Ray* ray, TriHitInfo& hitInfo)
+bool Intersections::intersectTri(const TriangleOptimized& tri, Ray* ray, BVHHitInfo& hitInfo)
 {
 	glm::vec3 h = glm::cross( ray->Direction, tri.e2 );
 	float a = glm::dot(tri.e1, h );
@@ -78,7 +71,7 @@ bool Intersections::intersectTri(const TriangleOptimized& tri, Ray* ray, TriHitI
 }
 
 // Faster and ignores backfaces
-bool Intersections::intersectTri2(const TriangleOptimized& tri, Ray* ray, TriHitInfo& hitInfo)
+bool Intersections::intersectTri2(const TriangleOptimized& tri, Ray* ray, BVHHitInfo& hitInfo)
 {
 	glm::vec3 normalVector = glm::cross(tri.e1, tri.e2);
 
@@ -86,8 +79,11 @@ bool Intersections::intersectTri2(const TriangleOptimized& tri, Ray* ray, TriHit
 	glm::vec3 dao = glm::cross(ao, ray->Direction);
 
 	float determinant = -glm::dot(ray->Direction, normalVector);
-	if (determinant < FLT_EPSILON)
-		return false;
+	// Backface culling
+	#if 0
+		if (determinant < FLT_EPSILON)
+			return false;
+	#endif
 
 	float invDet = 1.0f / determinant;
 

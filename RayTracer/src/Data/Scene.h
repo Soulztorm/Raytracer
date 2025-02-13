@@ -13,11 +13,22 @@ struct TriangleOBJ
 	uint32_t MaterialIndex = -1;
 };
 
+struct TriNormalsMats {
+	std::vector<glm::vec3> Normals;
+	uint32_t MaterialIndex = -1;
+};
+
 struct TriangleOptimized
 {
 	glm::vec3 v0;
 	glm::vec3 e1;
 	glm::vec3 e2;
+
+	glm::vec3 normal0;
+	glm::vec3 normal1;
+	glm::vec3 normal2;
+
+	uint32_t materialIndex;
 };
 
 struct Material {
