@@ -3,24 +3,21 @@
 #include <glm/glm.hpp>
 #include <Walnut/Random.h>
 
-#include "KDAccel/KDTreeCPU.h"
-
 #include <vector>
 
-struct Sphere {
-	glm::vec3 Position{ 0.0f };
-	float Radius = 1.0f;
-
-	uint32_t MaterialIndex = -1;
-};
-
-struct Triangle 
+struct TriangleOBJ
 {
 	std::vector<glm::vec3> Vertices;
 	std::vector<glm::vec3> Normals;
-
+	glm::vec3 Center;
 	uint32_t MaterialIndex = -1;
-	glm::vec3 Centroid;
+};
+
+struct TriangleOptimized
+{
+	glm::vec3 v0;
+	glm::vec3 e1;
+	glm::vec3 e2;
 };
 
 struct Material {
@@ -35,10 +32,6 @@ struct Material {
 };
 
 struct Scene {
-	std::vector<Sphere> spheres;
 	std::vector<Material> materials;
-
-	std::vector<Triangle> triangles;
-
-	std::shared_ptr<KDTreeCPU> kd_tree = nullptr;
+	std::vector<TriangleOBJ> triangles;
 };

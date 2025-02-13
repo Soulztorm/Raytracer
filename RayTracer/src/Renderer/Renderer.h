@@ -8,6 +8,7 @@
 #include "Scene.h"
 #include "Camera.h"
 #include "Ray.h"
+#include "BVH.h"
 
 float const Pi = std::atan(1.0f) * 4.0f;
 float const TwoPi = 2.0f * Pi;
@@ -102,10 +103,8 @@ class Renderer {
 public:
 	struct Settings {
 		bool Render = true;
-		bool Accumulate = true;
-		bool UseSphereScene = false;
-		bool UseACE_Color = true;
-		bool AntiAliasing = false;
+		bool Accumulate = false;
+		bool UseACE_Color = false;
 		uint32_t Bounces = 8;
 	};
 	Settings& GetSettings() { return m_settings; }
@@ -113,7 +112,7 @@ public:
 	// Constructor
 	Renderer();
 
-	void Render(const Scene& scene, const Camera& camera);
+	void Render(Scene* scene, BVH* bvh, Camera* camera);
 	void OnResize(uint32_t width, uint32_t height);
 
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
@@ -123,33 +122,14 @@ public:
 
 
 private:
-	struct HitData {
-		float Distance;
-		glm::vec3 Position;
-		glm::vec3 Normal;
-
-		int MaterialIndex;
-	};
-
-
 	// Methods
 	glm::vec3 PerPixel(uint32_t x, uint32_t y);
-	HitData TraceRay(Ray* ray);
-
-	HitData Miss();
-	HitData ClosestHitSphere(Ray* ray, float distance, uint32_t objectIndex);
-	HitData ClosestHitTriangle(Ray* ray, float distance, uint32_t objectIndex, float u, float v);
-
 	bool RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& normal, const glm::vec3& intersection_point, float IOR, Ray& ray_out);
-
-	bool IntersectRayTriangle(const Ray& ray, const Triangle& triangle, float& t);
-	bool IntersectRayTriangle2(const Ray& ray, const Triangle& triangle, float& t);
-
-
 
 	// Members
 	const Camera* m_activeCamera = nullptr;
 	const Scene* m_activeScene = nullptr;
+	BVH* m_activeBVH = nullptr;
 	Settings m_settings = Settings();
 
 	std::shared_ptr<Walnut::Image> m_Image;

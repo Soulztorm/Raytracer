@@ -14,6 +14,10 @@ project "RayTracer"
 
       "../Walnut/src",
 
+      "src/Data",
+      "src/Renderer",
+      "src/Utils",
+
       "%{IncludeDir.VulkanSDK}",
       "%{IncludeDir.glm}",
    }
