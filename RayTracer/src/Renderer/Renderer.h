@@ -105,12 +105,12 @@ public:
 		bool UseACE_Color = false;
 		uint32_t Bounces = 8;
 
-		uint32_t RenderMode = 0;
+		uint32_t RenderMode = 1;
 
 		float Exposure = 1.0f;
 
 		float DoF_Strength = 0.05f;
-		float DoF_Distance = 1.9f;
+		float DoF_Distance = 20.0f;
 		// Basically AA
 		float CamLookatJitter = 0.001f;
 	};

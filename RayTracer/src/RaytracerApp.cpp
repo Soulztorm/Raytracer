@@ -9,6 +9,7 @@
 #include "Camera.h"
 #include "Scene.h"
 #include "BVH.h"
+#include "HDRI.h"
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -59,8 +60,10 @@ public:
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
-		//if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
-		if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed.obj", config)) {
+		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+
+		if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
+		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed.obj", config)) {
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();
 			auto& materials = Reader.GetMaterials();
@@ -139,28 +142,28 @@ public:
 			}
 
 
+			#define ADDLIGHT 0
+			#if ADDLIGHT
+				Material& lightmat = m_scene.materials.emplace_back();
+				lightmat.Emission = glm::vec3(10.0f, 8.7f, 7.0f);
+				lightmat.Name = "PRAISE THE SUN";
+				TriangleOBJ skyLight;
+				skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, 10000.0f));
+				skyLight.Vertices.push_back(glm::vec3(-10000.0f, 10000.0f, 10000.0f));
+				skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, -10000.0f));
 
+				skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+				skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+				skyLight.Normals.push_back(glm::vec3(0,-1, 0));
 
-			Material& lightmat = m_scene.materials.emplace_back();
-			lightmat.Emission = glm::vec3(10.0f, 8.7f, 7.0f);
-			lightmat.Name = "PRAISE THE SUN";
-			TriangleOBJ skyLight;
-			skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, 10000.0f));
-			skyLight.Vertices.push_back(glm::vec3(-10000.0f, 10000.0f, 10000.0f));
-			skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, -10000.0f));
+				skyLight.Center = (skyLight.Vertices[0] + skyLight.Vertices[1] + skyLight.Vertices[2]) / 3.0f;
 
-			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
-			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
-			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+				skyLight.MaterialIndex = m_scene.materials.size() - 1;
 
-			skyLight.Center = (skyLight.Vertices[0] + skyLight.Vertices[1] + skyLight.Vertices[2]) / 3.0f;
-
-			skyLight.MaterialIndex = m_scene.materials.size() - 1;
-
-			m_scene.triangles.push_back(skyLight);
-			skyLight.Vertices[0] = glm::vec3(-10000.0f, 10000.0f, -10000.0f);
-			m_scene.triangles.push_back(skyLight);
-
+				m_scene.triangles.push_back(skyLight);
+				skyLight.Vertices[0] = glm::vec3(-10000.0f, 10000.0f, -10000.0f);
+				m_scene.triangles.push_back(skyLight);
+			#endif
 
 			
 			m_bvh = std::make_shared<BVH>(m_scene);

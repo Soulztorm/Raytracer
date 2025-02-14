@@ -51,7 +51,7 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec3));
 
 
-	std::for_each(std::execution::par_unseq, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(),[this, width](uint32_t y)
+	std::for_each(std::execution::par_unseq, m_ImageVerticalIter.begin(), m_ImageVerticalIter.end(), [this, width](uint32_t y)
 	{
 		for (uint32_t x = 0; x < width; x++)
 		{
@@ -60,12 +60,9 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 
 			m_AccumulationBuffer[pixelIndex] += pixelColor;
 
-			glm::vec3 accumulatedColor;
+			glm::vec3 accumulatedColor = m_settings.Exposure * (m_AccumulationBuffer[pixelIndex] / (float)m_frameindex);
 			if (m_settings.UseACE_Color)
-				accumulatedColor = Util::LinearToSRGB(Util::ACESFilm(m_settings.Exposure * (m_AccumulationBuffer[pixelIndex] / (float)m_frameindex)));
-			else
-				accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float)m_frameindex;
-
+				accumulatedColor = Util::LinearToSRGB(Util::ACESFilm(accumulatedColor));
 
 			uint32_t px = pixelIndex * 4;
 			m_ImageData[px] = accumulatedColor.r;
@@ -115,7 +112,8 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 
 			// no hit
 			if (hit.materialIndex < 0) {
-				finalColor += contribution * ambientColor;
+				glm::vec3 skyColor = m_activeScene->hdri.GetPixelFromWorldDirection(ray.Direction);
+				finalColor += contribution * skyColor;
 				break;
 			}
 

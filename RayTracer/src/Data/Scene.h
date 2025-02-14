@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <Walnut/Random.h>
 
+#include "HDRI.h"
+
 #include <vector>
 
 struct TriangleOBJ
@@ -37,6 +39,7 @@ struct Material {
 };
 
 struct Scene {
-	std::vector<Material> materials;
 	std::vector<TriangleOBJ> triangles;
+	std::vector<Material> materials;
+	HDRI hdri;
 };
