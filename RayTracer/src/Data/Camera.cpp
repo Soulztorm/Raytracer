@@ -129,6 +129,9 @@ void Camera::RecalculateView()
 {
 	m_View = glm::lookAt(m_Position, m_Position + m_ForwardDirection, glm::vec3(0, 1, 0));
 	m_InverseView = glm::inverse(m_View);
+
+	m_Up = glm::vec3(m_View[0][1], m_View[1][1], m_View[2][1]);
+	m_Right = glm::vec3(m_View[0][0], m_View[1][0], m_View[2][0]);
 }
 
 void Camera::RecalculateRayDirections()

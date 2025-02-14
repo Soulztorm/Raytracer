@@ -1,6 +1,8 @@
 #pragma once
 #include "BVH.h"
 
+#define MAX_DEPTH 32
+
 BVH::BVH(const Scene& scene)
 {
 	m_trianglesOBJ = scene.triangles;
@@ -35,7 +37,7 @@ BVH::BVH(const Scene& scene)
 HitInfo BVH::IntersectRay(Ray* ray)
 {
 	BVHHitInfo hitInfo;
-	int nodeStack[32];
+	int nodeStack[MAX_DEPTH];
 	char stackIndex = 0;
 	nodeStack[stackIndex++] = 0;
 
@@ -91,7 +93,6 @@ HitInfo BVH::IntersectRay(Ray* ray)
 
 void BVH::Split(int parentIndex, int triIndex, int triNum, int depth)
 {
-	const int MaxDepth = 32;
 	Node* parent = &(m_nodes[parentIndex]);
 
 	float parentCost = triNum * parent->boundingBox.getArea();
@@ -99,7 +100,7 @@ void BVH::Split(int parentIndex, int triIndex, int triNum, int depth)
 	SplitInfo bestSplit = ChooseSplitAxis(m_nodes[parentIndex].boundingBox, triIndex, triNum);
 
 	// Not to deep, and the split would improve cost
-	if (depth < MaxDepth && bestSplit.cost < parentCost) {
+	if (depth < MAX_DEPTH && bestSplit.cost < parentCost) {
 		BoundingBox bbLeft, bbRight;
 		int triCountLeft = 0;
 

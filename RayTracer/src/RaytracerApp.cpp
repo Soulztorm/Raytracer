@@ -33,7 +33,11 @@ public:
 		return *this;
 	}
 
-	operator double() const { return total_ / std::min(num_samples_, N); }
+	float operator()() {
+		return *this;
+	}
+
+	operator float() const { return total_ / std::min(num_samples_, N); }
 
 private:
 	T samples_[N];
@@ -55,8 +59,8 @@ public:
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
+		//if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
 		if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed.obj", config)) {
-		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Sphere.obj", config)) {
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();
 			auto& materials = Reader.GetMaterials();
@@ -133,6 +137,31 @@ public:
 					index_offset += 3;
 				}
 			}
+
+
+
+
+			Material& lightmat = m_scene.materials.emplace_back();
+			lightmat.Emission = glm::vec3(10.0f, 8.7f, 7.0f);
+			lightmat.Name = "PRAISE THE SUN";
+			TriangleOBJ skyLight;
+			skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, 10000.0f));
+			skyLight.Vertices.push_back(glm::vec3(-10000.0f, 10000.0f, 10000.0f));
+			skyLight.Vertices.push_back(glm::vec3(10000.0f, 10000.0f, -10000.0f));
+
+			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+			skyLight.Normals.push_back(glm::vec3(0,-1, 0));
+
+			skyLight.Center = (skyLight.Vertices[0] + skyLight.Vertices[1] + skyLight.Vertices[2]) / 3.0f;
+
+			skyLight.MaterialIndex = m_scene.materials.size() - 1;
+
+			m_scene.triangles.push_back(skyLight);
+			skyLight.Vertices[0] = glm::vec3(-10000.0f, 10000.0f, -10000.0f);
+			m_scene.triangles.push_back(skyLight);
+
+
 			
 			m_bvh = std::make_shared<BVH>(m_scene);
 			std::cout << "NodeCount: " << m_bvh->GetNodeCount();
@@ -147,14 +176,23 @@ public:
 
 	virtual void OnUIRender() override
 	{
+		int currentRenderMode = m_renderer.GetSettings().RenderMode;
+
 		// Settings
 		ImGui::Begin("Settings");
-		ImGui::Text("Last render: %.3fms | %i", m_lastRenderTime, m_renderer.GetFrameIndex());
+		ImGui::Text("Last render: %.3fms | %i", m_lastRenderTimes(), m_renderer.GetFrameIndex());
 		ImGui::Checkbox("Render", &m_renderer.GetSettings().Render);
+		ImGui::SliderInt("Rendermode", (int*)&m_renderer.GetSettings().RenderMode, 0, 1);
 		ImGui::Checkbox("Accumulate", &m_renderer.GetSettings().Accumulate);
+		ImGui::DragFloat("Exposure", &m_renderer.GetSettings().Exposure, 0.01f, 0.0f, 10000.0f);
 		ImGui::Checkbox("Use ACE Color", &m_renderer.GetSettings().UseACE_Color);
 		ImGui::DragInt("# Bounces", (int*)&m_renderer.GetSettings().Bounces, 0.05f, 0);
 
+		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.001f, 0.0f, 0.1f);
+		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.01f, 0.0f, 10000.0f);
+
+		if (m_renderer.GetSettings().RenderMode != currentRenderMode)
+			m_renderer.ResetFrameIndex();
 
 		//ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
 		//ImGui::SliderFloat("Light Power:", &m_scene.lightPower, -1.0f, 2.0f, "%.2f");
@@ -213,7 +251,7 @@ public:
 		// render
 		m_renderer.Render(&m_scene, m_bvh.get(), &m_camera);
 
-		m_lastRenderTime = m_lastRenderTimes(timer.ElapsedMillis());	
+		m_lastRenderTimes(timer.ElapsedMillis());	
 	}
 
 
@@ -224,12 +262,10 @@ private:
 
 	std::shared_ptr<BVH> m_bvh;
 
-	Moving_Average<float, float, 10> m_lastRenderTimes;
-
 	uint32_t m_viewportWidth = 0, m_viewportHeight = 0;
 
 	// Gui vars
-	float m_lastRenderTime = 0.0f;
+	Moving_Average<float, float, 10> m_lastRenderTimes;
 };
 
 
@@ -238,8 +274,8 @@ Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 {
 	Walnut::ApplicationSpecification spec;
 	spec.Name = "Raytracer go BRRRRRRR";
-	spec.Width = 1280;
-	spec.Height = 720;
+	spec.Width = 900;
+	spec.Height = 480;
 
 	Walnut::Application* app = new Walnut::Application(spec);
 	app->PushLayer<RaytracerLayer>();

@@ -62,7 +62,7 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 
 			glm::vec3 accumulatedColor;
 			if (m_settings.UseACE_Color)
-				accumulatedColor = Util::LinearToSRGB(Util::ACESFilm(m_AccumulationBuffer[pixelIndex] / (float)m_frameindex));
+				accumulatedColor = Util::LinearToSRGB(Util::ACESFilm(m_settings.Exposure * (m_AccumulationBuffer[pixelIndex] / (float)m_frameindex)));
 			else
 				accumulatedColor = m_AccumulationBuffer[pixelIndex] / (float)m_frameindex;
 
@@ -88,113 +88,115 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 
 glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 	Ray ray;
-	ray.Origin = m_activeCamera->GetPosition();
-	ray.Direction = m_activeCamera->GetRayDirections()[y * m_Image->GetWidth() + x];
+
+	// Defocus ray origin
+	glm::vec2 camJitter = Walnut::Random::InCircle() * m_settings.DoF_Strength;
+	ray.Origin = m_activeCamera->GetPosition() + m_activeCamera->GetRight() * camJitter.x + m_activeCamera->GetUp() * camJitter.y;
+
+	// Defocus at viewpoint
+	glm::vec2 lookatJitter = Walnut::Random::InCircle() * m_settings.CamLookatJitter;
+	glm::vec3 lookatVector = m_activeCamera->GetRayDirections()[y * m_Image->GetWidth() + x];
+	glm::vec3 lookatPosition = lookatVector * m_settings.DoF_Distance + m_activeCamera->GetPosition() + m_activeCamera->GetRight() * lookatJitter.x + m_activeCamera->GetUp() * lookatJitter.y;
+	ray.Direction = glm::normalize(lookatPosition - ray.Origin);
 
 
 	glm::vec3 ambientColor{ 0.0f, 0.0f, 0.0f};
 	glm::vec3 finalColor{ 0.0f };
 	glm::vec3 contribution{ 1.0f };
 
-#if 0
-	ray.DirectionInverse = glm::vec3(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
+	// Main Render mode
+	if (m_settings.RenderMode == 0) {
+		for (size_t i = 0; i < m_settings.Bounces; i++)
+		{
+			ray.DirectionInverse = glm::vec3(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
 
-	// Shoot ray into scene
-	HitInfo hit = m_activeBVH->IntersectRay(&ray);
+			// Shoot ray into scene
+			HitInfo hit = m_activeBVH->IntersectRay(&ray);
 
-	// no hit
-	if (hit.materialIndex >= 0) {
-		finalColor = 0.5f * (hit.normal + glm::vec3(1.0f));
-		//finalColor = (hit.materialIndex >= 0) ? glm::vec3(0) : glm::vec3(1);
-	}
+			// no hit
+			if (hit.materialIndex < 0) {
+				finalColor += contribution * ambientColor;
+				break;
+			}
 
-	return finalColor;
-
-#else
-	for (size_t i = 0; i < m_settings.Bounces; i++)
-	{
-		ray.DirectionInverse = glm::vec3(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
-
-		// Shoot ray into scene
-		HitInfo hit = m_activeBVH->IntersectRay(&ray);
-
-		// no hit
-		if (hit.materialIndex < 0) {
-			finalColor += contribution * ambientColor;
-			break;
-		}
-
-		// What material did we hit?
-		Material mat = m_activeScene->materials[hit.materialIndex];
+			// What material did we hit?
+			Material mat = m_activeScene->materials[hit.materialIndex];
 
 
 
 
-		bool doTransmission = false;
-		//bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
-		//glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
+			bool doTransmission = false;
+			//bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
+			//glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
 
-		// New ray origin offset from last hit position along surface normal
-		ray.Origin = hit.position + hit.normal * FLT_EPSILON;
+			// New ray origin offset from last hit position along surface normal
+			ray.Origin = hit.position + hit.normal * FLT_EPSILON;
 
 
-		if (mat.Transparency > 0.0f) {
-			// fresnel term    0: no reflect   1: full reflect
-			//float fresnel = glm::dot(ray.Direction, -normalSurface);
-			float fresnel = glm::dot(ray.Direction, -hit.normal);
+			if (mat.Transparency > 0.0f) {
+				// fresnel term    0: no reflect   1: full reflect
+				//float fresnel = glm::dot(ray.Direction, -normalSurface);
+				float fresnel = glm::dot(ray.Direction, -hit.normal);
 
-			//if (Walnut::Random::Float() < fresnel) {
-			//if (Random::Float() < fresnel) {
+				//if (Walnut::Random::Float() < fresnel) {
+				//if (Random::Float() < fresnel) {
 				doTransmission = true;
-			//}
-		}
+				//}
+			}
 
 
-		// Transmission or reflection ray?
-		if (doTransmission) {
-			//// glsl way (me no workeee, why?)
-			//ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
-			//continue;
+			// Transmission or reflection ray?
+			if (doTransmission) {
+				//// glsl way (me no workeee, why?)
+				//ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
+				//continue;
 
-			Ray refractionRay;
-			if (RefractionRay(ray.Direction, hit.normal, hit.position, mat.IOR, refractionRay)) {
-				ray = refractionRay;
-				continue;
+				Ray refractionRay;
+				if (RefractionRay(ray.Direction, hit.normal, hit.position, mat.IOR, refractionRay)) {
+					ray = refractionRay;
+					continue;
+				}
+			}
+			else {
+				//glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Util::RandomUnitVector());
+				glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Walnut::Random::InUnitSphere());
+				glm::vec3 reflectedVector = glm::reflect(ray.Direction, hit.normal);
+				reflectedVector = glm::normalize(glm::mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+
+				//glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
+				//glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
+
+				ray.Direction = reflectedVector;
+			}
+
+
+			finalColor += mat.Emission * contribution;
+			contribution *= mat.Albedo;
+
+
+			// Russian Roulette
+			// As the throughput gets smaller, the ray is more likely to get terminated early.
+			// Survivors have their value boosted to make up for fewer samples being in the average.
+			{
+				float p = std::max(contribution.r, std::max(contribution.g, contribution.b));
+				if (Walnut::Random::Float() > p)
+					break;
+
+				// Add the energy we 'lose' by randomly terminating paths
+				contribution *= 1.0f / p;
 			}
 		}
-		else {
-			//glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Util::RandomUnitVector());
-			glm::vec3 diffuseRayDir = glm::normalize(hit.normal + Walnut::Random::InUnitSphere());
-			glm::vec3 reflectedVector = glm::reflect(ray.Direction, hit.normal);
-			reflectedVector = glm::normalize(glm::mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+	}
 
-			//glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
-			//glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
+	// Debug view
+	else {
+		ray.DirectionInverse = glm::vec3(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
 
-			ray.Direction = reflectedVector;
-		}
-
-
-		finalColor += mat.Emission * contribution;
-		contribution *= mat.Albedo;
-
-
-		// Russian Roulette
-		// As the throughput gets smaller, the ray is more likely to get terminated early.
-		// Survivors have their value boosted to make up for fewer samples being in the average.
-		{
-			float p = std::max(contribution.r, std::max(contribution.g, contribution.b));
-			if (Walnut::Random::Float() > p)
-				break;
-
-			// Add the energy we 'lose' by randomly terminating paths
-			contribution *= 1.0f / p;
+		HitInfo hit = m_activeBVH->IntersectRay(&ray);
+		if (hit.materialIndex >= 0) {
+			finalColor = 0.5f * (hit.normal + glm::vec3(1.0f));
 		}
 	}
-#endif
-
-
-	
 
 	return finalColor;
 }

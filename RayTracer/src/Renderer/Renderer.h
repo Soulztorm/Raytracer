@@ -87,14 +87,12 @@ namespace Util {
 		);
 	}
 
-	static glm::vec3 LinearToSRGB(glm::vec3 rgb)
-	{
-		rgb = clamp(rgb, 0.0f, 1.0f);
-
+	static glm::vec3 LinearToSRGB(glm::vec3 color) {
+		color = glm::clamp(color, 0.0f, 1.0f);
 		return glm::mix(
-			glm::pow(rgb, glm::vec3(1.0f / 2.4f)) * 1.055f - 0.055f,
-			rgb * 12.92f,
-			LessThan(rgb, 0.0031308f)
+			1.055f * glm::pow(color, glm::vec3(1.0f / 2.4f)) - 0.055f,
+			color * 12.92f,
+			glm::lessThan(color, glm::vec3(0.0031308f))
 		);
 	}
 }
@@ -103,9 +101,18 @@ class Renderer {
 public:
 	struct Settings {
 		bool Render = true;
-		bool Accumulate = false;
+		bool Accumulate = true;
 		bool UseACE_Color = false;
 		uint32_t Bounces = 8;
+
+		uint32_t RenderMode = 0;
+
+		float Exposure = 1.0f;
+
+		float DoF_Strength = 0.05f;
+		float DoF_Distance = 1.9f;
+		// Basically AA
+		float CamLookatJitter = 0.001f;
 	};
 	Settings& GetSettings() { return m_settings; }
 
