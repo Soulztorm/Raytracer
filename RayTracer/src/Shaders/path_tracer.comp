@@ -1,12 +1,18 @@
 #version 450
-
-layout (local_size_x = 64) in;
+layout (local_size_x = 1) in;
 
 // The input tensors bind index is relative to index in parameter passed
 //layout(set = 0, binding = 0) buffer buf_in_a { float in_a[]; };
 
 //layout(binding = 0, rgba32f) uniform image2D img;
+
+// Output image
 layout(set = 0, binding = 0) buffer buf_img_out { vec4 img_out[]; };
+
+// Nodes BB, index and triangle count
+layout(set = 0, binding = 1) readonly buffer buf_nodes_bb { float nodes_bb[]; };
+layout(set = 0, binding = 2) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
+layout(set = 0, binding = 3) readonly buffer buf_tris_opt { float tris_opt[]; };
 
 layout(constant_id = 0) const float image_width = 0;
 layout(constant_id = 1) const float image_height = 0;
@@ -19,7 +25,94 @@ layout(push_constant) uniform PushConstants {
     uint frameindex;
 } camdata;
 
+#define FLT_MAX 3.402823466e+38
+#define FLT_EPSILON 1.192092896e-07F 
+#define MAX_DEPTH 32
 
+struct Ray
+{
+	vec3 Origin;
+	vec3 Direction;
+	vec3 DirectionInverse;
+};
+
+struct BoundingBox
+{
+    vec3 center;
+    vec3 extends;
+};
+
+struct Node
+{
+	BoundingBox boundingBox;
+	int index;
+	int triangleCount;
+};
+
+struct HitInfo {
+	vec3 position;
+	vec3 normal;
+	int materialIndex;
+};
+
+struct BVHHitInfo {
+	float dist;
+	float u;
+	float v;
+	int triIndex;
+};
+
+struct TriangleOptimized
+{
+	vec3 v0;
+	vec3 e1;
+	vec3 e2;
+};
+
+TriangleOptimized GetTriangleOptimized(uint triIndex){
+    uint triOffset = 9 * triIndex;
+
+    vec3 v0 = vec3(
+    tris_opt[triOffset],
+    tris_opt[triOffset+ 1],
+    tris_opt[triOffset+ 2]);
+
+    vec3 e1 = vec3(
+    tris_opt[triOffset + 3],
+    tris_opt[triOffset + 4],
+    tris_opt[triOffset + 5]);
+
+    vec3 e2 = vec3(
+    tris_opt[triOffset + 6],
+    tris_opt[triOffset + 7],
+    tris_opt[triOffset + 8]);
+
+    return TriangleOptimized(v0, e1, e2);
+}
+
+BoundingBox GetNodeBB(uint nodeIndex){
+    uint bbOffset = 6 * nodeIndex;
+
+    vec3 center = vec3(
+    nodes_bb[bbOffset],
+    nodes_bb[bbOffset + 1],
+    nodes_bb[bbOffset + 2]);
+
+    vec3 extends = vec3(
+    nodes_bb[bbOffset + 3],
+    nodes_bb[bbOffset + 4],
+    nodes_bb[bbOffset + 5]);
+
+    return BoundingBox(center, extends);
+}
+
+Node GetNode(int nodeIndex){
+    Node node;
+    node.boundingBox = GetNodeBB(nodeIndex);
+    node.index = nodes_index_tricount[nodeIndex*2];
+    node.triangleCount = nodes_index_tricount[nodeIndex*2 + 1];
+    return node;
+}
 
 uint NextRandom(inout uint state)
 {
@@ -53,27 +146,145 @@ vec3 RandomDirection(inout uint state)
     return normalize(vec3(x, y, z));
 }
 
-bool RayIntersectsSphere(vec3 ray_o, vec3 ray_d, vec3 sphere_c, float radius, out float t) {
-    vec3 oc = ray_o - sphere_c;
-    float a = dot(ray_d, ray_d);
-    float b = 2.0 * dot(oc, ray_d);
-    float c = dot(oc, oc) - radius * radius;
-    float discriminant = b * b - 4.0 * a * c;
+// bool RayIntersectsSphere(Ray ray, vec3 sphere_c, float radius, out float t) {
+//     vec3 oc = ray.Origin - sphere_c;
+//     float a = dot(ray.Direction, ray.Direction);
+//     float b = 2.0 * dot(oc, ray.Direction);
+//     float c = dot(oc, oc) - radius * radius;
+//     float discriminant = b * b - 4.0 * a * c;
     
-    if (discriminant < 0.0) return false;
-    float sqrtD = sqrt(discriminant);
-    float t0 = (-b - sqrtD) / (2.0 * a);
-    float t1 = (-b + sqrtD) / (2.0 * a);
+//     if (discriminant < 0.0) return false;
+//     float sqrtD = sqrt(discriminant);
+//     float t0 = (-b - sqrtD) / (2.0 * a);
+//     float t1 = (-b + sqrtD) / (2.0 * a);
     
-    if (t0 > 0.0) {
-        t = t0;
-        return true;
-    } else if (t1 > 0.0) {
-        t = t1;
-        return true;
-    }
-    return false;
+//     if (t0 > 0.0) {
+//         t = t0;
+//         return true;
+//     } else if (t1 > 0.0) {
+//         t = t1;
+//         return true;
+//     }
+//     return false;
+// }
 
+float RayBBIntersection(in BoundingBox bbox, in Ray ray)
+{
+	vec3 l1 = (bbox.center - ray.Origin) * ray.DirectionInverse;
+	vec3 l2 = bbox.extends * ray.DirectionInverse;
+
+	vec3 tMin = l1 - l2;
+	vec3 tMax = l1 + l2;
+
+	vec3 t2 = max(tMin, tMax);
+	float tFar = min(min(t2.x, t2.y), t2.z);
+
+	if (tFar < 0.0f)
+		return FLT_MAX;
+
+	vec3 t1 = min(tMin, tMax);
+	float tNear = max(max(t1.x, t1.y), t1.z);
+
+	if (tNear > tFar)
+		return FLT_MAX;
+
+	return tNear;
+}
+
+bool RayTriangleIntersection(in TriangleOptimized tri, in Ray ray, out BVHHitInfo hitInfo)
+{
+	vec3 h = cross(ray.Direction, tri.e2);
+	float a = dot(tri.e1, h);
+
+	if (a > -FLT_EPSILON && a < FLT_EPSILON) {
+		return false;
+	}
+
+	float f = 1.0 / a;
+	vec3 s = ray.Origin - tri.v0;
+	float u = f * dot(s, h);
+
+	if (u < 0.0 || u > 1.0) {
+		return false;
+	}
+
+	vec3 q = cross(s, tri.e1);
+	float v = f * dot(ray.Direction, q);
+
+	if (v < 0.0 || u + v > 1.0) {
+		return false;
+	}
+
+	// at this stage we can compute t to find out where the intersection point is on the line
+	float t = f * dot(tri.e2, q);
+
+	if (t > FLT_EPSILON) { // ray intersection
+		hitInfo.dist = t;
+		hitInfo.u = u;
+		hitInfo.v = v;
+		return true;
+	}
+
+	return false;
+}
+
+
+HitInfo IntersectRay(in Ray ray)
+{
+	BVHHitInfo hitInfo = BVHHitInfo(FLT_MAX - 1.0, 0.0, 0.0, -1);
+	int nodeStack[MAX_DEPTH];
+	int stackIndex = 0;
+	nodeStack[stackIndex++] = 0;
+
+	while (stackIndex > 0) {
+		Node currentNode = GetNode(nodeStack[--stackIndex]);
+
+		bool isLeaf = (currentNode.triangleCount > 0);
+		if (isLeaf) {
+			//Check all triangles in leaf
+			BVHHitInfo triHit = BVHHitInfo(FLT_MAX - 1.0, 0.0, 0.0, -1);
+			for (int i = currentNode.index; i < currentNode.index + currentNode.triangleCount; i++) {
+				bool didHit = RayTriangleIntersection(GetTriangleOptimized(i), ray, triHit);
+				if (didHit && triHit.dist < hitInfo.dist) {
+					hitInfo.triIndex = i;
+					hitInfo.dist = triHit.dist;
+					hitInfo.u = triHit.u;
+					hitInfo.v = triHit.v;
+				}
+			}
+		}
+		else {
+			int childIndexA = currentNode.index;
+			int childIndexB = currentNode.index + 1;
+
+			float dstA = RayBBIntersection(GetNodeBB(childIndexA), ray);
+			float dstB = RayBBIntersection(GetNodeBB(childIndexB), ray);
+
+			// We want to look at closest child node first, so push it last
+			bool isNearestA = dstA <= dstB;
+			float dstNear = isNearestA ? dstA : dstB;
+			float dstFar = isNearestA ? dstB : dstA;
+			int childIndexNear = isNearestA ? childIndexA : childIndexB;
+			int childIndexFar = isNearestA ? childIndexB : childIndexA;
+
+			if (dstFar < hitInfo.dist) nodeStack[stackIndex++] = childIndexFar;
+			if (dstNear < hitInfo.dist) nodeStack[stackIndex++] = childIndexNear;
+		}
+	}
+	
+
+	HitInfo returnHit = HitInfo(vec3(0), vec3(0), -1);
+
+
+	//If we hit something, work out the position, normal and material
+	if (hitInfo.triIndex >= 0) {
+		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
+		returnHit.materialIndex = 1;
+		//returnHit.normal = (1.0f - hitInfo.u - hitInfo.v) * m_trianglesOptimized[hitInfo.triIndex].normal0 + hitInfo.u * m_trianglesOptimized[hitInfo.triIndex].normal1 + hitInfo.v * m_trianglesOptimized[hitInfo.triIndex].normal2;
+		//returnHit.materialIndex = m_trianglesOptimized[hitInfo.triIndex].materialIndex;
+	}
+
+	return returnHit;
 }
 
 
@@ -87,23 +298,20 @@ void main() {
     mat4 inverseViewMatrx = inverse(camdata.viewMatrix);
 
     vec4 target = camdata.inverseProjectionMatrix * vec4(uvCentered.x, uvCentered.y, 1.f, 1.f);
-    vec3 rayDirection = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0))); // World space
 
-    for (int i = 0; i < 10000;i++){
-    float sphereDist = -1.0f;
-    vec3 sphereCenter = vec3(0,0,1);
-    if (RayIntersectsSphere(camdata.camPos, rayDirection, sphereCenter, 0.4f, sphereDist)){
-        vec3 hitPos = camdata.camPos + rayDirection * sphereDist;
-        vec3 normal = normalize(hitPos - sphereCenter);
-        finalColor.rgb = vec3(-dot(normal, rayDirection));
+    Ray ray;
+    ray.Direction = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0)));
+    ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+    ray.Origin = camdata.camPos;
+
+
+    HitInfo hitInfo = IntersectRay(ray);
+
+    if (hitInfo.materialIndex >= 0){
+        finalColor.r = length(hitInfo.position - ray.Origin) / 20.0;
     }
-    }
 
-
-    //finalColor.rgb = vec3(RandomValue(randomSeed), RandomValue(randomSeed), RandomValue(randomSeed));
-    //finalColor.z = camPos.z;
-    //finalColor.xy = rayDirection.xy + vec2(1);
-
-    //finalColor = vec4(uvCentered, 0, 1);
-    img_out[gl_GlobalInvocationID.x] = finalColor;
+    // Accumulate as running average
+    vec4 colorIncrease = (finalColor - img_out[gl_GlobalInvocationID.x]) / camdata.frameindex; 
+    img_out[gl_GlobalInvocationID.x] += colorIncrease;
 }

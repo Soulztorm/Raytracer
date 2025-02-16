@@ -123,7 +123,7 @@ public:
 
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
 
-	void ResetFrameIndex() { m_frameindex = 1; }
+	virtual void ResetFrameIndex() { m_frameindex = 1; }
 	uint32_t GetFrameIndex() { return m_frameindex; }
 
 

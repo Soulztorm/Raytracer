@@ -5,6 +5,9 @@
 class BoundingBox
 {
 public:
+	glm::vec3 center = glm::vec3(0.0f);
+	glm::vec3 extends = glm::vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
 	void growToInclude(const TriangleOBJ& tri) {
 		glm::vec3 min = this->center - this->extends;
 		glm::vec3 max = this->center + this->extends;
@@ -24,9 +27,6 @@ public:
 		float zx = 2.0f * extends[2] * extends[0];
 		return xy + yz + zx;
 	}
-
-	glm::vec3 center = glm::vec3(0.0f);
-	glm::vec3 extends = glm::vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 };
 
 struct SplitInfo {
@@ -53,6 +53,9 @@ public:
 	HitInfo IntersectRay(Ray* ray);
 
 	size_t GetNodeCount() { return m_nodes.size(); }
+
+	std::vector<Node>* GetNodes() { return &m_nodes; }
+	std::vector<TriangleOptimized>* GetTrisOpt() { return &m_trianglesOptimized; }
 
 protected:
 	void Split(int parentIndex, int triIndex, int triNum, int depth = 0);

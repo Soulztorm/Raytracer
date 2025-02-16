@@ -17,18 +17,33 @@ public:
     void RenderGPU(Camera* camera);
 
     virtual bool OnResize(uint32_t width, uint32_t height) override;
+    virtual void ResetFrameIndex() override;
 
 private:
     std::vector<uint32_t> CompileShader(const std::string& filepath);
     std::vector<uint32_t> m_kp_shader;
+
+    void FillBuffers();
+
+    bool m_inialized = false;
 
     kp::Manager m_kp_manager;
     std::shared_ptr<kp::Algorithm> m_kp_algorithm;
     std::shared_ptr<kp::Sequence> m_kp_sequence;
 
     // Storage Buffers
-    std::shared_ptr<kp::TensorT<float>> m_kp_imgRaw;
+    std::vector<std::shared_ptr<kp::Memory>>  m_kp_buffers;
+    // consts and on dispatch vars
     std::vector<float> m_kp_consts;
     std::vector<PushConsts> m_kp_pushConsts;
-    std::vector<std::shared_ptr<kp::Memory>>  m_kp_params;
+
+    // Final outbut buffer with rgba pixels
+    std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;
+
+    // Node buffers
+    std::shared_ptr<kp::TensorT<float>> m_buf_nodes_BBoxes;
+    std::shared_ptr<kp::TensorT<int>> m_buf_nodes_idx_tricount;
+
+    // Triangle data
+    std::shared_ptr<kp::TensorT<float>> m_buf_tris_opt;
 };
