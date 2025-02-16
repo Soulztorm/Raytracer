@@ -1,35 +1,41 @@
 #version 450
 layout (local_size_x = 1) in;
 
-// The input tensors bind index is relative to index in parameter passed
-//layout(set = 0, binding = 0) buffer buf_in_a { float in_a[]; };
-
-//layout(binding = 0, rgba32f) uniform image2D img;
+#define MAX_DEPTH 32
 
 // Output image
-layout(set = 0, binding = 0) buffer buf_img_out { vec4 img_out[]; };
+layout(set = 0, binding = 0) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 1) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 // Nodes BB, index and triangle count
-layout(set = 0, binding = 1) readonly buffer buf_nodes_bb { float nodes_bb[]; };
-layout(set = 0, binding = 2) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
-layout(set = 0, binding = 3) readonly buffer buf_tris_opt { float tris_opt[]; };
-layout(set = 0, binding = 4) readonly buffer buf_tris_normals { float tris_normals[]; };
-layout(set = 0, binding = 5) readonly buffer buf_tris_mats { int tris_mats[]; };
+layout(set = 0, binding = 2) readonly buffer buf_nodes_bb { float nodes_bb[]; };
+layout(set = 0, binding = 3) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
+layout(set = 0, binding = 4) readonly buffer buf_tris_opt { float tris_opt[]; };
+layout(set = 0, binding = 5) readonly buffer buf_tris_normals { float tris_normals[]; };
+layout(set = 0, binding = 6) readonly buffer buf_tris_mats { int tris_mats[]; };
+
+// materials
+layout(set = 0, binding = 7) readonly buffer buf_mats { float mats[]; };
+
+// hdri
+layout(binding = 8, rgba32f) readonly uniform image2D hdri_image;
+
 
 layout(constant_id = 0) const float image_width = 0;
 layout(constant_id = 1) const float image_height = 0;
 
 // Kompute supports push constants updated on dispatch
-layout(push_constant) uniform PushConstants {
+layout(push_constant) readonly uniform PushConstants {
     mat4 viewMatrix;
     mat4 inverseProjectionMatrix;
     vec3 camPos;
     uint frameindex;
+    float exposure;
 } camdata;
 
+#define PI 3.1415926535897932384626433832795
 #define FLT_MAX 3.402823466e+38
 #define FLT_EPSILON 1.192092896e-07F 
-#define MAX_DEPTH 32
 
 struct Ray
 {
@@ -92,6 +98,34 @@ TriangleOptimized GetTriangleOptimized(uint triIndex){
     return TriangleOptimized(v0, e1, e2);
 }
 
+struct Material {
+	vec3 Albedo;
+	vec3 Emission;
+	float Roughness;
+	float Transparency;
+	float IOR;
+};
+
+Material GetMaterial(uint materialIndex){
+    uint matOffset = 9 * materialIndex;
+
+    vec3 albedo = vec3(
+    mats[matOffset],
+    mats[matOffset+ 1],
+    mats[matOffset+ 2]);
+
+    vec3 emission = vec3(
+    mats[matOffset + 3],
+    mats[matOffset + 4],
+    mats[matOffset + 5]);
+
+    float roughness = mats[matOffset + 6];
+    float transparency = mats[matOffset + 7];
+    float ior = mats[matOffset + 8];
+
+    return Material(albedo, emission, roughness, transparency, ior);
+}
+
 BoundingBox GetNodeBB(uint nodeIndex){
     uint bbOffset = 6 * nodeIndex;
 
@@ -114,6 +148,27 @@ Node GetNode(int nodeIndex){
     node.index = nodes_index_tricount[nodeIndex*2];
     node.triangleCount = nodes_index_tricount[nodeIndex*2 + 1];
     return node;
+}
+
+const float ACE_a = 2.51f;
+const float ACE_b = 0.03f;
+const float ACE_c = 2.43f;
+const float ACE_d = 0.59f;
+const float ACE_e = 0.14f;
+
+vec3 ACESFilm(vec3 x)
+{
+    vec3 aceColor = clamp((x * (ACE_a * x + ACE_b)) / (x * (ACE_c * x + ACE_d) + ACE_e), 0.0, 1.0);
+    return aceColor;
+}
+
+vec3 LinearToSRGB(vec3 color) {
+    color = clamp(color, 0.0f, 1.0f);
+    return mix(
+        1.055f * pow(color, vec3(1.0 / 2.4)) - 0.055,
+        color * 12.92,
+        lessThan(color, vec3(0.0031308))
+    );
 }
 
 uint NextRandom(inout uint state)
@@ -148,27 +203,29 @@ vec3 RandomDirection(inout uint state)
     return normalize(vec3(x, y, z));
 }
 
-// bool RayIntersectsSphere(Ray ray, vec3 sphere_c, float radius, out float t) {
-//     vec3 oc = ray.Origin - sphere_c;
-//     float a = dot(ray.Direction, ray.Direction);
-//     float b = 2.0 * dot(oc, ray.Direction);
-//     float c = dot(oc, oc) - radius * radius;
-//     float discriminant = b * b - 4.0 * a * c;
-    
-//     if (discriminant < 0.0) return false;
-//     float sqrtD = sqrt(discriminant);
-//     float t0 = (-b - sqrtD) / (2.0 * a);
-//     float t1 = (-b + sqrtD) / (2.0 * a);
-    
-//     if (t0 > 0.0) {
-//         t = t0;
-//         return true;
-//     } else if (t1 > 0.0) {
-//         t = t1;
-//         return true;
-//     }
-//     return false;
-// }
+vec3 RandomInUnitSphere(inout uint state)
+{
+    return normalize(vec3(RandomValue(state) * 2.0 - 1.0, RandomValue(state) * 2.0 - 1.0f, RandomValue(state) * 2.0 - 1.0f));
+}
+
+
+vec4 SampleHDRIFromDirection(in vec3 worldDir)
+{
+	// Compute spherical coordinates
+	float longitude = atan(worldDir.z, worldDir.x);  // Ranges from -pi to pi
+	float latitude = asin(worldDir.y);          // Ranges from -pi/2 to pi/2
+
+	// Convert to normalized UV coordinates
+	float u = (longitude + PI) / (2.0 * PI); // Map from [-pi, pi] to [0,1]
+	float v = (0.5 * PI - latitude) / PI;    // Map from [-pi/2, pi/2] to [0,1], flip v
+
+	// Convert to pixel coordinates
+    ivec2 pixelCoords = ivec2(u * 4096, v * 2048);
+	return imageLoad(hdri_image, pixelCoords);
+}
+
+
+
 
 float RayBBIntersection(in BoundingBox bbox, in Ray ray)
 {
@@ -295,7 +352,9 @@ HitInfo IntersectRay(in Ray ray)
 
 
 void main() {
-    vec4 finalColor = vec4(0,0,0,1);
+    vec3 finalColor = vec3(0.0);
+    vec3 contribution = vec3(1.0);
+
     vec2 uv = vec2((gl_GlobalInvocationID.x % uint(image_width)) / image_width, (gl_GlobalInvocationID.x / image_width) / image_height); 
     vec2 uvCentered = uv * 2.f - 1.f;
 
@@ -306,18 +365,100 @@ void main() {
     vec4 target = camdata.inverseProjectionMatrix * vec4(uvCentered.x, uvCentered.y, 1.f, 1.f);
 
     Ray ray;
-    ray.Direction = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0)));
-    ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
     ray.Origin = camdata.camPos;
+    ray.Direction = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0)));
+
+    for (int i = 0; i < 8; i++){
+        ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+        HitInfo hitInfo = IntersectRay(ray);
+
+        // No hit
+        if (hitInfo.materialIndex < 0){
+            vec3 skyColor = SampleHDRIFromDirection(ray.Direction).rgb;
+            finalColor += contribution * skyColor;
+            break;
+        }
+
+        Material mat = GetMaterial(hitInfo.materialIndex);
+
+        bool doTransmission = false;
+        //bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
+        //glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
+
+        // New ray origin offset from last hit position along surface normal
+        ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
 
 
-    HitInfo hitInfo = IntersectRay(ray);
+        if (mat.Transparency > 0.0f) {
+            // fresnel term    0: no reflect   1: full reflect
+            //float fresnel = glm::dot(ray.Direction, -normalSurface);
+            float fresnel = dot(ray.Direction, -hitInfo.normal);
 
-    if (hitInfo.materialIndex >= 0){
-        finalColor.rgb = vec3(-dot(ray.Direction, hitInfo.normal));
+            //if (Walnut::Random::Float() < fresnel) {
+            //if (Random::Float() < fresnel) {
+            doTransmission = true;
+            //}
+        }
+
+
+        // Transmission or reflection ray?
+        if (doTransmission) {
+            //// glsl way (me no workeee, why?)
+            //ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
+            //continue;
+
+            Ray refractionRay;
+            //if (RefractionRay(ray.Direction, hitInfo.normal, hitInfo.position, mat.IOR, refractionRay)) {
+            //    ray = refractionRay;
+        //     continue;
+            //}
+        }
+        else {
+            vec3 diffuseRayDir = normalize(hitInfo.normal + RandomInUnitSphere(randomSeed));
+           // vec3 diffuseRayDir = normalize(hitInfo.normal + RandomDirection(randomSeed));
+            vec3 reflectedVector = reflect(ray.Direction, hitInfo.normal);
+            reflectedVector = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+
+            //glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
+            //glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
+
+            ray.Direction = reflectedVector;
+        }
+
+
+        finalColor += mat.Emission * contribution;
+        contribution *= mat.Albedo;
+
+
+        // Russian Roulette
+        // As the throughput gets smaller, the ray is more likely to get terminated early.
+        // Survivors have their value boosted to make up for fewer samples being in the average.
+        
+        float p = max(contribution.r, max(contribution.g, contribution.b));
+        if (RandomValue(randomSeed) > p)
+            break;
+
+        // Add the energy we 'lose' by randomly terminating paths
+        contribution *= 1.0f / p;
     }
+    
+    
+
+
+
+
+
+
 
     // Accumulate as running average
-    vec4 colorIncrease = (finalColor - img_out[gl_GlobalInvocationID.x]) / camdata.frameindex; 
-    img_out[gl_GlobalInvocationID.x] += colorIncrease;
+    //vec4 colorIncrease = (vec4(finalColor, 1.0) - img_out[gl_GlobalInvocationID.x]) / camdata.frameindex; 
+    //img_out[gl_GlobalInvocationID.x] += colorIncrease;
+
+    vec4 oldColor = img_accu[gl_GlobalInvocationID.x];
+    vec4 newColor = oldColor + ((vec4(finalColor, 1.0) - oldColor) / camdata.frameindex); 
+    img_accu[gl_GlobalInvocationID.x] = newColor;
+
+    // Color corrected image
+    vec3 colorCorrected = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
+    img_out[gl_GlobalInvocationID.x] = vec4(colorCorrected, 1.0);
 }

@@ -19,7 +19,6 @@ void RendererGPU::FillBuffers() {
 	std::vector<Node>* nodes = m_activeBVH->GetNodes();
 	std::vector<float> bbArray(nodes->size() * 6);
 	std::vector<int> itArray(nodes->size() * 2);
-	
 	for (int i = 0; i < nodes->size(); i ++) {
 		// Copy the Bounding box
 		BoundingBox bb = nodes->at(i).boundingBox;
@@ -29,7 +28,6 @@ void RendererGPU::FillBuffers() {
 		itArray[i * 2] = nodes->at(i).index;
 		itArray[i * 2 + 1] = nodes->at(i).triangleCount;
 	}
-
 	m_buf_nodes_BBoxes = m_kp_manager.tensor(bbArray);
 	m_buf_nodes_idx_tricount = m_kp_manager.tensorT<int>(itArray);
 
@@ -39,7 +37,6 @@ void RendererGPU::FillBuffers() {
 	std::vector<float> triOptArray(trisOpt->size() * 9);
 	std::vector<float> triNormalArray(trisOpt->size() * 9);
 	std::vector<int> triMatsArray(trisOpt->size());
-
 	for (int i = 0; i < trisOpt->size(); i++) {
 		TriangleOptimized t = trisOpt->at(i);
 		memcpy(&(triOptArray[i * 9]), &t, 3 * sizeof(glm::vec3));
@@ -50,10 +47,43 @@ void RendererGPU::FillBuffers() {
 	m_buf_tris_normals = m_kp_manager.tensor(triNormalArray);
 	m_buf_tris_mats = m_kp_manager.tensorT<int>(triMatsArray);
 
+
+	// HDRI
+	int hdri_width = m_activeScene->hdri.GetWidth();
+	int hdri_height = m_activeScene->hdri.GetHeight();
+	int hdri_pixelCount = hdri_width * hdri_height;
+	std::vector<float> hdriArray(hdri_pixelCount * 4);
+	for (int i = 0; i < hdri_pixelCount; i++) {
+		hdriArray[i * 4] = m_activeScene->hdri.GetData()[i].r;
+		hdriArray[i * 4 + 1] = m_activeScene->hdri.GetData()[i].g;
+		hdriArray[i * 4 + 2] = m_activeScene->hdri.GetData()[i].b;
+		hdriArray[i * 4 + 3] = m_activeScene->hdri.GetData()[i].a;
+	}
+	m_buf_hdri = m_kp_manager.imageT<float>(hdriArray, hdri_width, hdri_height, 4);
+
+
+	// Materials
+	std::vector<float> materialArray(m_activeScene->materials.size() * 9);
+	for (int i = 0; i < m_activeScene->materials.size(); i++) {
+		Material mat = m_activeScene->materials[i];
+		materialArray[i * 9] = mat.Albedo.r;
+		materialArray[i * 9 + 1] = mat.Albedo.g;
+		materialArray[i * 9 + 2] = mat.Albedo.b;
+		materialArray[i * 9 + 3] = mat.Emission.r;
+		materialArray[i * 9 + 4] = mat.Emission.g;
+		materialArray[i * 9 + 5] = mat.Emission.b;
+		materialArray[i * 9 + 6] = mat.Roughness;
+		materialArray[i * 9 + 7] = mat.Transparency;
+		materialArray[i * 9 + 8] = mat.IOR;
+	}
+	m_buf_materials = m_kp_manager.tensor(materialArray);
+
 	// Upload buffers to GPU
 	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ 
 		m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, 
-		m_buf_tris_opt, m_buf_tris_normals, m_buf_tris_mats });
+		m_buf_tris_opt, m_buf_tris_normals, 
+		m_buf_tris_mats, m_buf_materials,
+		m_buf_hdri});
 }
 
 
@@ -64,7 +94,7 @@ void RendererGPU::InitGPU(Scene* scene, BVH* bvh) {
 	// Compile the shader
 	m_kp_shader = CompileShader("src/Shaders/path_tracer.comp");
 
-	m_kp_pushConsts = { { glm::mat4(), glm::mat4(), glm::vec3(0), 0 } };
+	m_kp_pushConsts = { { glm::mat4(), glm::mat4(), glm::vec3(0), 0, m_settings.Exposure } };
 
 	FillBuffers();
 
@@ -78,12 +108,16 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 		//m_kp_manager.clear();
 
 		m_buf_imgOut = m_kp_manager.tensor(std::vector<float>(width * height * 4));
+		m_buf_imgAccu = m_kp_manager.tensor(std::vector<float>(width * height * 4), kp::Memory::MemoryTypes::eStorage);
 		m_kp_consts = { float(width), float(height) };
 
 		m_kp_buffers = { 
-			m_buf_imgOut, 
+			m_buf_imgAccu, m_buf_imgOut,
 			m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount,
-			m_buf_tris_opt, m_buf_tris_normals, m_buf_tris_mats };
+			m_buf_tris_opt, m_buf_tris_normals, 
+			m_buf_tris_mats, m_buf_materials,
+			m_buf_hdri
+		};
 
 		m_kp_algorithm = m_kp_manager.algorithm<float, PushConsts>(
 			m_kp_buffers,
@@ -117,6 +151,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].viewMatrix = camera->GetView();
 	m_kp_pushConsts[0].inverseProjectionMatrix = camera->GetInverseProjection();
 	m_kp_pushConsts[0].camPos = camera->GetPosition();
+	m_kp_pushConsts[0].exposure = m_settings.Exposure;
 
 	// Run the shader
 	m_kp_manager.sequence()

@@ -9,6 +9,7 @@ struct PushConsts
     glm::mat4 inverseProjectionMatrix;
     glm::vec3 camPos;
     uint32_t frameIndex;
+    float exposure;
 };
 
 class RendererGPU : public Renderer {
@@ -39,6 +40,7 @@ private:
 
     // Final outbut buffer with rgba pixels
     std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;
+    std::shared_ptr<kp::TensorT<float>> m_buf_imgAccu;
 
     // Node buffers
     std::shared_ptr<kp::TensorT<float>> m_buf_nodes_BBoxes;
@@ -48,4 +50,8 @@ private:
     std::shared_ptr<kp::TensorT<float>> m_buf_tris_opt;
     std::shared_ptr<kp::TensorT<float>> m_buf_tris_normals;
     std::shared_ptr<kp::TensorT<int>> m_buf_tris_mats;
+    std::shared_ptr<kp::TensorT<float>> m_buf_materials;
+
+    // HDRI
+    std::shared_ptr<kp::ImageT<float>> m_buf_hdri;
 };
