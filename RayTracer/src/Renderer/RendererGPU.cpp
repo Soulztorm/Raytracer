@@ -37,16 +37,23 @@ void RendererGPU::FillBuffers() {
 	// Fill triangle buffer
 	std::vector<TriangleOptimized>* trisOpt = m_activeBVH->GetTrisOpt();
 	std::vector<float> triOptArray(trisOpt->size() * 9);
+	std::vector<float> triNormalArray(trisOpt->size() * 9);
+	std::vector<int> triMatsArray(trisOpt->size());
 
 	for (int i = 0; i < trisOpt->size(); i++) {
 		TriangleOptimized t = trisOpt->at(i);
 		memcpy(&(triOptArray[i * 9]), &t, 3 * sizeof(glm::vec3));
+		memcpy(&(triNormalArray[i * 9]), &(t.normal0), 3 * sizeof(glm::vec3));
+		triMatsArray[i] = t.materialIndex;
 	}
-
 	m_buf_tris_opt = m_kp_manager.tensor(triOptArray);
+	m_buf_tris_normals = m_kp_manager.tensor(triNormalArray);
+	m_buf_tris_mats = m_kp_manager.tensorT<int>(triMatsArray);
 
 	// Upload buffers to GPU
-	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, m_buf_tris_opt });
+	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ 
+		m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, 
+		m_buf_tris_opt, m_buf_tris_normals, m_buf_tris_mats });
 }
 
 
@@ -73,7 +80,10 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 		m_buf_imgOut = m_kp_manager.tensor(std::vector<float>(width * height * 4));
 		m_kp_consts = { float(width), float(height) };
 
-		m_kp_buffers = { m_buf_imgOut, m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, m_buf_tris_opt };
+		m_kp_buffers = { 
+			m_buf_imgOut, 
+			m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount,
+			m_buf_tris_opt, m_buf_tris_normals, m_buf_tris_mats };
 
 		m_kp_algorithm = m_kp_manager.algorithm<float, PushConsts>(
 			m_kp_buffers,

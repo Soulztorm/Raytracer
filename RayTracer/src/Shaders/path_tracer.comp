@@ -13,6 +13,8 @@ layout(set = 0, binding = 0) buffer buf_img_out { vec4 img_out[]; };
 layout(set = 0, binding = 1) readonly buffer buf_nodes_bb { float nodes_bb[]; };
 layout(set = 0, binding = 2) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
 layout(set = 0, binding = 3) readonly buffer buf_tris_opt { float tris_opt[]; };
+layout(set = 0, binding = 4) readonly buffer buf_tris_normals { float tris_normals[]; };
+layout(set = 0, binding = 5) readonly buffer buf_tris_mats { int tris_mats[]; };
 
 layout(constant_id = 0) const float image_width = 0;
 layout(constant_id = 1) const float image_height = 0;
@@ -279,9 +281,13 @@ HitInfo IntersectRay(in Ray ray)
 	//If we hit something, work out the position, normal and material
 	if (hitInfo.triIndex >= 0) {
 		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
-		returnHit.materialIndex = 1;
-		//returnHit.normal = (1.0f - hitInfo.u - hitInfo.v) * m_trianglesOptimized[hitInfo.triIndex].normal0 + hitInfo.u * m_trianglesOptimized[hitInfo.triIndex].normal1 + hitInfo.v * m_trianglesOptimized[hitInfo.triIndex].normal2;
-		//returnHit.materialIndex = m_trianglesOptimized[hitInfo.triIndex].materialIndex;
+		
+        vec3 n0 = vec3(tris_normals[hitInfo.triIndex * 9], tris_normals[hitInfo.triIndex * 9 + 1], tris_normals[hitInfo.triIndex * 9 + 2]);
+        vec3 n1 = vec3(tris_normals[hitInfo.triIndex * 9 + 3], tris_normals[hitInfo.triIndex * 9 + 4], tris_normals[hitInfo.triIndex * 9 + 5]);
+        vec3 n2 = vec3(tris_normals[hitInfo.triIndex * 9 + 6], tris_normals[hitInfo.triIndex * 9 + 7], tris_normals[hitInfo.triIndex * 9 + 8]);
+        returnHit.normal = (1.0f - hitInfo.u - hitInfo.v) * n0 + hitInfo.u * n1 + hitInfo.v * n2;
+
+        returnHit.materialIndex = tris_mats[hitInfo.triIndex];
 	}
 
 	return returnHit;
@@ -308,7 +314,7 @@ void main() {
     HitInfo hitInfo = IntersectRay(ray);
 
     if (hitInfo.materialIndex >= 0){
-        finalColor.r = length(hitInfo.position - ray.Origin) / 20.0;
+        finalColor.rgb = vec3(-dot(ray.Direction, hitInfo.normal));
     }
 
     // Accumulate as running average

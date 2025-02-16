@@ -46,4 +46,6 @@ private:
 
     // Triangle data
     std::shared_ptr<kp::TensorT<float>> m_buf_tris_opt;
+    std::shared_ptr<kp::TensorT<float>> m_buf_tris_normals;
+    std::shared_ptr<kp::TensorT<int>> m_buf_tris_mats;
 };
