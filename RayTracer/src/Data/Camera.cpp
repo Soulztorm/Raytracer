@@ -11,8 +11,11 @@ using namespace Walnut;
 Camera::Camera(float verticalFOV, float nearClip, float farClip)
 	: m_VerticalFOV(verticalFOV), m_NearClip(nearClip), m_FarClip(farClip)
 {
-	m_ForwardDirection = glm::normalize(glm::vec3(-1, -0.7, -1));
-	m_Position = glm::vec3(0.9, 1, 0.9);
+	//m_ForwardDirection = glm::normalize(glm::vec3(-1, -0.7, -1));
+	//m_Position = glm::vec3(0.9, 1, 0.9);
+
+	m_Position = glm::vec3(0, 0, 0);
+	m_ForwardDirection = glm::vec3(0, 0, 1);
 
 	RecalculateView();
 	RecalculateRayDirections();
@@ -130,8 +133,8 @@ void Camera::RecalculateView()
 	m_View = glm::lookAt(m_Position, m_Position + m_ForwardDirection, glm::vec3(0, 1, 0));
 	m_InverseView = glm::inverse(m_View);
 
-	m_Up = glm::vec3(m_View[0][1], m_View[1][1], m_View[2][1]);
 	m_Right = glm::vec3(m_View[0][0], m_View[1][0], m_View[2][0]);
+	m_Up = glm::vec3(m_View[0][1], m_View[1][1], m_View[2][1]);
 }
 
 void Camera::RecalculateRayDirections()

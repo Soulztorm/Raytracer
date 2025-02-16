@@ -11,11 +11,11 @@
 using namespace Walnut;
 
 
-void Renderer::OnResize(uint32_t width, uint32_t height)
+bool Renderer::OnResize(uint32_t width, uint32_t height)
 {
 	if (m_Image) {
 		if (m_Image->GetWidth() == width && m_Image->GetHeight() == height)
-			return;
+			return false;
 		
 		m_Image->Resize(width, height);
 	}
@@ -34,6 +34,8 @@ void Renderer::OnResize(uint32_t width, uint32_t height)
 		m_ImageVerticalIter[i] = i;
 
 	ResetFrameIndex();
+
+	return true;
 }
 
 void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
@@ -44,8 +46,6 @@ void Renderer::Render(Scene* scene, BVH* bvh, Camera* camera)
 
 	uint32_t width = m_Image->GetWidth();
 	uint32_t height = m_Image->GetHeight();
-
-	float aspect = width / (float)height;
 
 	if (m_frameindex == 1)
 		memset(m_AccumulationBuffer, 0, width * height * sizeof(glm::vec3));

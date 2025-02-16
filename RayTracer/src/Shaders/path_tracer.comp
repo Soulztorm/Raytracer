@@ -1,0 +1,109 @@
+#version 450
+
+layout (local_size_x = 64) in;
+
+// The input tensors bind index is relative to index in parameter passed
+//layout(set = 0, binding = 0) buffer buf_in_a { float in_a[]; };
+
+//layout(binding = 0, rgba32f) uniform image2D img;
+layout(set = 0, binding = 0) buffer buf_img_out { vec4 img_out[]; };
+
+layout(constant_id = 0) const float image_width = 0;
+layout(constant_id = 1) const float image_height = 0;
+
+// Kompute supports push constants updated on dispatch
+layout(push_constant) uniform PushConstants {
+    mat4 viewMatrix;
+    mat4 inverseProjectionMatrix;
+    vec3 camPos;
+    uint frameindex;
+} camdata;
+
+
+
+uint NextRandom(inout uint state)
+{
+    state = state * 747796405 + 2891336453;
+    uint result = ((state >> ((state >> 28) + 4)) ^ state) * 277803737;
+    result = (result >> 22) ^ result;
+    return result;
+}
+
+float RandomValue(inout uint state)
+{
+    return NextRandom(state) / 4294967295.0; // 2^32 - 1
+}
+
+// Random value in normal distribution (with mean=0 and sd=1)
+float RandomValueNormalDistribution(inout uint state)
+{
+    // Thanks to https://stackoverflow.com/a/6178290
+    float theta = 2 * 3.1415926 * RandomValue(state);
+    float rho = sqrt(-2 * log(RandomValue(state)));
+    return rho * cos(theta);
+}
+
+// Calculate a random direction
+vec3 RandomDirection(inout uint state)
+{
+    // Thanks to https://math.stackexchange.com/a/1585996
+    float x = RandomValueNormalDistribution(state);
+    float y = RandomValueNormalDistribution(state);
+    float z = RandomValueNormalDistribution(state);
+    return normalize(vec3(x, y, z));
+}
+
+bool RayIntersectsSphere(vec3 ray_o, vec3 ray_d, vec3 sphere_c, float radius, out float t) {
+    vec3 oc = ray_o - sphere_c;
+    float a = dot(ray_d, ray_d);
+    float b = 2.0 * dot(oc, ray_d);
+    float c = dot(oc, oc) - radius * radius;
+    float discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant < 0.0) return false;
+    float sqrtD = sqrt(discriminant);
+    float t0 = (-b - sqrtD) / (2.0 * a);
+    float t1 = (-b + sqrtD) / (2.0 * a);
+    
+    if (t0 > 0.0) {
+        t = t0;
+        return true;
+    } else if (t1 > 0.0) {
+        t = t1;
+        return true;
+    }
+    return false;
+
+}
+
+
+void main() {
+    vec4 finalColor = vec4(0,0,0,1);
+    vec2 uv = vec2((gl_GlobalInvocationID.x % uint(image_width)) / image_width, (gl_GlobalInvocationID.x / image_width) / image_height); 
+    vec2 uvCentered = uv * 2.f - 1.f;
+
+    uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
+
+    mat4 inverseViewMatrx = inverse(camdata.viewMatrix);
+
+    vec4 target = camdata.inverseProjectionMatrix * vec4(uvCentered.x, uvCentered.y, 1.f, 1.f);
+    vec3 rayDirection = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0))); // World space
+
+    for (int i = 0; i < 10000;i++){
+    float sphereDist = -1.0f;
+    vec3 sphereCenter = vec3(0,0,1);
+    if (RayIntersectsSphere(camdata.camPos, rayDirection, sphereCenter, 0.4f, sphereDist)){
+        vec3 hitPos = camdata.camPos + rayDirection * sphereDist;
+        vec3 normal = normalize(hitPos - sphereCenter);
+        finalColor.rgb = vec3(-dot(normal, rayDirection));
+    }
+    }
+
+
+    //finalColor.rgb = vec3(RandomValue(randomSeed), RandomValue(randomSeed), RandomValue(randomSeed));
+    //finalColor.z = camPos.z;
+    //finalColor.xy = rayDirection.xy + vec2(1);
+
+    //finalColor = vec4(uvCentered, 0, 1);
+    img_out[gl_GlobalInvocationID.x] = finalColor;
+}

@@ -6,6 +6,7 @@
 #include "Walnut/Timer.h"
 
 #include "Renderer.h"
+#include "RendererGPU.h"
 #include "Camera.h"
 #include "Scene.h"
 #include "BVH.h"
@@ -53,8 +54,7 @@ class RaytracerLayer : public Walnut::Layer
 public:
 	RaytracerLayer() :
 		m_camera(70.0f, 0.05f, 100.0f)
-	{
-
+	{	
 		// Load OBJ
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
@@ -168,6 +168,8 @@ public:
 			
 			m_bvh = std::make_shared<BVH>(m_scene);
 			std::cout << "NodeCount: " << m_bvh->GetNodeCount();
+
+			m_renderer.InitGPU(&m_scene, m_bvh.get());
 		}		
 	}
 
@@ -180,10 +182,12 @@ public:
 	virtual void OnUIRender() override
 	{
 		int currentRenderMode = m_renderer.GetSettings().RenderMode;
+		bool usingGPU = m_renderer.GetSettings().UseGPU;
 
 		// Settings
 		ImGui::Begin("Settings");
 		ImGui::Text("Last render: %.3fms | %i", m_lastRenderTimes(), m_renderer.GetFrameIndex());
+		ImGui::Checkbox("GPU", &m_renderer.GetSettings().UseGPU);
 		ImGui::Checkbox("Render", &m_renderer.GetSettings().Render);
 		ImGui::SliderInt("Rendermode", (int*)&m_renderer.GetSettings().RenderMode, 0, 1);
 		ImGui::Checkbox("Accumulate", &m_renderer.GetSettings().Accumulate);
@@ -194,7 +198,7 @@ public:
 		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.001f, 0.0f, 0.1f);
 		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.01f, 0.0f, 10000.0f);
 
-		if (m_renderer.GetSettings().RenderMode != currentRenderMode)
+		if (m_renderer.GetSettings().RenderMode != currentRenderMode || m_renderer.GetSettings().UseGPU != usingGPU)
 			m_renderer.ResetFrameIndex();
 
 		//ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
@@ -252,7 +256,10 @@ public:
 		m_camera.OnResize(m_viewportWidth, m_viewportHeight);
 
 		// render
-		m_renderer.Render(&m_scene, m_bvh.get(), &m_camera);
+		if (m_renderer.GetSettings().UseGPU)
+			m_renderer.RenderGPU(&m_camera);
+		else
+			m_renderer.Render(&m_scene, m_bvh.get(), &m_camera);
 
 		m_lastRenderTimes(timer.ElapsedMillis());	
 	}
@@ -261,7 +268,8 @@ public:
 private:
 	Camera m_camera;
 	Scene m_scene;
-	Renderer m_renderer;
+	RendererGPU m_renderer;
+	// m_vulkanRenderer;
 
 	std::shared_ptr<BVH> m_bvh;
 

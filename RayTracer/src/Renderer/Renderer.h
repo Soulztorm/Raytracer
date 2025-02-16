@@ -100,6 +100,8 @@ namespace Util {
 class Renderer {
 public:
 	struct Settings {
+		bool UseGPU = true;
+
 		bool Render = true;
 		bool Accumulate = true;
 		bool UseACE_Color = false;
@@ -116,8 +118,8 @@ public:
 	};
 	Settings& GetSettings() { return m_settings; }
 
-	void Render(Scene* scene, BVH* bvh, Camera* camera);
-	void OnResize(uint32_t width, uint32_t height);
+	virtual void Render(Scene* scene, BVH* bvh, Camera* camera);
+	virtual bool OnResize(uint32_t width, uint32_t height);
 
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
 
@@ -125,7 +127,7 @@ public:
 	uint32_t GetFrameIndex() { return m_frameindex; }
 
 
-private:
+protected:
 	// Methods
 	glm::vec3 PerPixel(uint32_t x, uint32_t y);
 	bool RefractionRay(const glm::vec3& ray_dir_in, const glm::vec3& normal, const glm::vec3& intersection_point, float IOR, Ray& ray_out);

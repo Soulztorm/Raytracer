@@ -76,7 +76,7 @@ HitInfo BVH::IntersectRay(Ray* ray)
 			if (dstNear < hitInfo.dist) nodeStack[stackIndex++] = childIndexNear;
 		}
 	}
-
+	
 
 	HitInfo returnHit;
 

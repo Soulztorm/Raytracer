@@ -52,6 +52,11 @@ namespace Walnut {
 		static VkPhysicalDevice GetPhysicalDevice();
 		static VkDevice GetDevice();
 
+		static VkDescriptorPool GetDescriptorPool();
+
+		static VkQueue GetQueue();
+		static VkCommandPool GetComputeCommandPool();
+
 		static VkCommandBuffer GetCommandBuffer(bool begin);
 		static void FlushCommandBuffer(VkCommandBuffer commandBuffer);
 

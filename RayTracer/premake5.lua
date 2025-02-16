@@ -5,7 +5,7 @@ project "RayTracer"
    targetdir "bin/%{cfg.buildcfg}"
    staticruntime "off"
 
-   files { "src/**.h", "src/**.cpp", "src/**.hpp", "src/**.c" }
+   files { "src/**.h", "src/**.cpp", "src/**.hpp", "src/**.c", "src/**.comp", "src/**.spv", "src/**.glsl" }
 
    includedirs
    {
@@ -17,14 +17,24 @@ project "RayTracer"
       "src/Data",
       "src/Renderer",
       "src/Utils",
+      "src/Shaders",
 
       "%{IncludeDir.VulkanSDK}",
       "%{IncludeDir.glm}",
+      "%{IncludeDir.kompute}",
+   }
+
+   libdirs
+   {
+      "%{LibraryDir.kompute}",
    }
 
    links
    {
-      "Walnut"
+      "Walnut",
+      "fmt",
+      "kompute",
+      "kp_logger",
    }
 
 
@@ -32,6 +42,7 @@ project "RayTracer"
    objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
    filter "system:windows"
+      buildoptions { "/utf-8" }
       systemversion "latest"
       defines { "WL_PLATFORM_WINDOWS" }
       
