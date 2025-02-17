@@ -34,17 +34,17 @@ void RendererGPU::FillBuffers() {
 
 	// Fill triangle buffer
 	std::vector<TriangleOptimized>* trisOpt = m_activeBVH->GetTrisOpt();
-	std::vector<float> triOptArray(trisOpt->size() * 9);
-	std::vector<float> triNormalArray(trisOpt->size() * 9);
+	std::vector<float> triOptArray(trisOpt->size() * 18);
+	//std::vector<float> triNormalArray(trisOpt->size() * 9);
 	std::vector<int> triMatsArray(trisOpt->size());
 	for (int i = 0; i < trisOpt->size(); i++) {
 		TriangleOptimized t = trisOpt->at(i);
-		memcpy(&(triOptArray[i * 9]), &t, 3 * sizeof(glm::vec3));
-		memcpy(&(triNormalArray[i * 9]), &(t.normal0), 3 * sizeof(glm::vec3));
+		memcpy(&(triOptArray[i * 18]), &t, 6 * sizeof(glm::vec3));
+		//memcpy(&(triNormalArray[i * 9]), &(t.normal0), 3 * sizeof(glm::vec3));
 		triMatsArray[i] = t.materialIndex;
 	}
 	m_buf_tris_opt = m_kp_manager.tensor(triOptArray);
-	m_buf_tris_normals = m_kp_manager.tensor(triNormalArray);
+	//m_buf_tris_normals = m_kp_manager.tensor(triNormalArray);
 	m_buf_tris_mats = m_kp_manager.tensorT<int>(triMatsArray);
 
 
@@ -81,20 +81,22 @@ void RendererGPU::FillBuffers() {
 	// Upload buffers to GPU
 	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ 
 		m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, 
-		m_buf_tris_opt, m_buf_tris_normals, 
+		//m_buf_tris_opt, m_buf_tris_normals, 
+		m_buf_tris_opt, 
 		m_buf_tris_mats, m_buf_materials,
 		m_buf_hdri});
 }
 
 
-void RendererGPU::InitGPU(Scene* scene, BVH* bvh) {
+void RendererGPU::InitGPU(Scene* scene, BVH* bvh, Camera* cam) {
 	m_activeScene = scene;
 	m_activeBVH = bvh;
+	m_activeCamera = cam;
 
 	// Compile the shader
 	m_kp_shader = CompileShader("src/Shaders/path_tracer.comp");
 
-	m_kp_pushConsts = { { glm::mat4(), glm::mat4(), glm::vec3(0), 0, m_settings.Exposure } };
+	m_kp_pushConsts = { { glm::vec3(0), 0, m_settings.RenderMode, m_settings.UseACE_Color, m_settings.Exposure } };
 
 	FillBuffers();
 
@@ -105,18 +107,29 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 	bool didResize = Renderer::OnResize(width, height);
 
 	if (didResize) {
-		//m_kp_manager.clear();
+		std::vector<float> rayDirArray(width * height * 3);
+		if (m_activeCamera->GetRayDirections().size()  == width * height) {
+			for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
+				rayDirArray[r*3] = m_activeCamera->GetRayDirections()[r].x;
+				rayDirArray[r*3+1] = m_activeCamera->GetRayDirections()[r].y;
+				rayDirArray[r*3+2] = m_activeCamera->GetRayDirections()[r].z;
+			}
+		}
+		m_buf_raydirs = m_kp_manager.tensor(rayDirArray);
 
 		m_buf_imgOut = m_kp_manager.tensor(std::vector<float>(width * height * 4));
 		m_buf_imgAccu = m_kp_manager.tensor(std::vector<float>(width * height * 4), kp::Memory::MemoryTypes::eStorage);
+
 		m_kp_consts = { float(width), float(height) };
 
-		m_kp_buffers = { 
-			m_buf_imgAccu, m_buf_imgOut,
+		m_kp_buffers = {
+			m_buf_raydirs,
 			m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount,
-			m_buf_tris_opt, m_buf_tris_normals, 
+			m_buf_tris_opt, 
+			//m_buf_tris_opt, m_buf_tris_normals, 
 			m_buf_tris_mats, m_buf_materials,
-			m_buf_hdri
+			m_buf_hdri,
+			m_buf_imgAccu, m_buf_imgOut
 		};
 
 		m_kp_algorithm = m_kp_manager.algorithm<float, PushConsts>(
@@ -127,6 +140,8 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 			{ m_kp_pushConsts });
 
 		m_inialized = true;
+
+		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_raydirs });
 	}
 	
 	return didResize;
@@ -144,19 +159,31 @@ void RendererGPU::ResetFrameIndex()
 	//m_Image->SetData(m_buf_imgOut->data());
 }
 
+bool RendererGPU::OnCameraMoved()
+{
+	std::vector<float> rayDirArray(m_activeCamera->GetRayDirections().size() * 3);
+	for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
+		m_buf_raydirs->data()[r * 3] = m_activeCamera->GetRayDirections()[r].x;
+		m_buf_raydirs->data()[r * 3 + 1] = m_activeCamera->GetRayDirections()[r].y;
+		m_buf_raydirs->data()[r * 3 + 2] = m_activeCamera->GetRayDirections()[r].z;
+	}
+	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_raydirs });
+	return true;
+}
+
 void RendererGPU::RenderGPU(Camera* camera)
 {
 	// Set the camera stuff
-	m_kp_pushConsts[0].frameIndex = m_frameindex;
-	m_kp_pushConsts[0].viewMatrix = camera->GetView();
-	m_kp_pushConsts[0].inverseProjectionMatrix = camera->GetInverseProjection();
 	m_kp_pushConsts[0].camPos = camera->GetPosition();
+	m_kp_pushConsts[0].frameIndex = m_frameindex;
 	m_kp_pushConsts[0].exposure = m_settings.Exposure;
+	m_kp_pushConsts[0].renderMode = m_settings.RenderMode;
+	m_kp_pushConsts[0].useACE = m_settings.UseACE_Color;
 
 	// Run the shader
 	m_kp_manager.sequence()
 		->eval<kp::OpAlgoDispatch>(m_kp_algorithm, m_kp_pushConsts);
-	
+
 	// Every 10 frames or when moving fetch the image
 	if (m_frameindex % 10 == 0 || m_frameindex <= 1) {
 		m_kp_manager.sequence()->eval<kp::OpSyncLocal>({ m_buf_imgOut });

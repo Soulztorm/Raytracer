@@ -120,6 +120,7 @@ public:
 
 	virtual void Render(Scene* scene, BVH* bvh, Camera* camera);
 	virtual bool OnResize(uint32_t width, uint32_t height);
+	virtual bool OnCameraMoved() { return false; };
 
 	std::shared_ptr<Walnut::Image> GetImage() { return m_Image; }
 

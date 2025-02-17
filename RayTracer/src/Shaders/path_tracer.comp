@@ -3,22 +3,26 @@ layout (local_size_x = 1) in;
 
 #define MAX_DEPTH 32
 
-// Output image
-layout(set = 0, binding = 0) buffer buf_img_accu { vec4 img_accu[]; };
-layout(set = 0, binding = 1) writeonly buffer buf_img_out { vec4 img_out[]; };
+
+// Ray directions
+layout(set = 0, binding = 0) readonly buffer buf_raydirs { float raydirs[]; };
 
 // Nodes BB, index and triangle count
-layout(set = 0, binding = 2) readonly buffer buf_nodes_bb { float nodes_bb[]; };
-layout(set = 0, binding = 3) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
-layout(set = 0, binding = 4) readonly buffer buf_tris_opt { float tris_opt[]; };
-layout(set = 0, binding = 5) readonly buffer buf_tris_normals { float tris_normals[]; };
-layout(set = 0, binding = 6) readonly buffer buf_tris_mats { int tris_mats[]; };
+layout(set = 0, binding = 1) readonly buffer buf_nodes_bb { float nodes_bb[]; };
+layout(set = 0, binding = 2) readonly buffer buf_nodes_index_tricount { int nodes_index_tricount[]; };
+layout(set = 0, binding = 3) readonly buffer buf_tris_opt { float tris_opt[]; };
+layout(set = 0, binding = 4) readonly buffer buf_tris_mats { int tris_mats[]; };
 
 // materials
-layout(set = 0, binding = 7) readonly buffer buf_mats { float mats[]; };
+layout(set = 0, binding = 5) readonly buffer buf_mats { float mats[]; };
 
 // hdri
-layout(binding = 8, rgba32f) readonly uniform image2D hdri_image;
+layout(binding = 6, rgba32f) readonly uniform image2D hdri_image;
+
+// Output image
+layout(set = 0, binding = 7) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 8) writeonly buffer buf_img_out { vec4 img_out[]; };
+
 
 
 layout(constant_id = 0) const float image_width = 0;
@@ -26,16 +30,20 @@ layout(constant_id = 1) const float image_height = 0;
 
 // Kompute supports push constants updated on dispatch
 layout(push_constant) readonly uniform PushConstants {
-    mat4 viewMatrix;
-    mat4 inverseProjectionMatrix;
     vec3 camPos;
     uint frameindex;
+    uint rendermode;
+    bool useACE;
     float exposure;
 } camdata;
 
-#define PI 3.1415926535897932384626433832795
+#define PI 3.14159265358
+#define PI1 0.31830988618 // 1 / pi
+#define PI1_2 0.15915494309 // 1 / (2 * pi)
+
+
 #define FLT_MAX 3.402823466e+38
-#define FLT_EPSILON 1.192092896e-07F 
+#define FLT_EPSILON 0.00001
 
 struct Ray
 {
@@ -75,10 +83,13 @@ struct TriangleOptimized
 	vec3 v0;
 	vec3 e1;
 	vec3 e2;
+	vec3 n0;
+	vec3 n1;
+	vec3 n2;
 };
 
 TriangleOptimized GetTriangleOptimized(uint triIndex){
-    uint triOffset = 9 * triIndex;
+    uint triOffset = 18 * triIndex;
 
     vec3 v0 = vec3(
     tris_opt[triOffset],
@@ -95,7 +106,22 @@ TriangleOptimized GetTriangleOptimized(uint triIndex){
     tris_opt[triOffset + 7],
     tris_opt[triOffset + 8]);
 
-    return TriangleOptimized(v0, e1, e2);
+    vec3 n0 = vec3(
+    tris_opt[triOffset + 9],
+    tris_opt[triOffset + 10],
+    tris_opt[triOffset + 11]);
+
+    vec3 n1 = vec3(
+    tris_opt[triOffset + 12],
+    tris_opt[triOffset + 13],
+    tris_opt[triOffset + 14]);
+
+    vec3 n2 = vec3(
+    tris_opt[triOffset + 15],
+    tris_opt[triOffset + 16],
+    tris_opt[triOffset + 17]);
+
+    return TriangleOptimized(v0, e1, e2, n0, n1, n2);
 }
 
 struct Material {
@@ -216,8 +242,8 @@ vec4 SampleHDRIFromDirection(in vec3 worldDir)
 	float latitude = asin(worldDir.y);          // Ranges from -pi/2 to pi/2
 
 	// Convert to normalized UV coordinates
-	float u = (longitude + PI) / (2.0 * PI); // Map from [-pi, pi] to [0,1]
-	float v = (0.5 * PI - latitude) / PI;    // Map from [-pi/2, pi/2] to [0,1], flip v
+	float u = (longitude + PI) * PI1_2; // Map from [-pi, pi] to [0,1]
+	float v = (0.5 * PI - latitude) * PI1;    // Map from [-pi/2, pi/2] to [0,1], flip v
 
 	// Convert to pixel coordinates
     ivec2 pixelCoords = ivec2(u * 4096, v * 2048);
@@ -294,6 +320,8 @@ HitInfo IntersectRay(in Ray ray)
 	int nodeStack[MAX_DEPTH];
 	int stackIndex = 0;
 	nodeStack[stackIndex++] = 0;
+    
+    vec3 n0, n1, n2; 
 
 	while (stackIndex > 0) {
 		Node currentNode = GetNode(nodeStack[--stackIndex]);
@@ -303,12 +331,18 @@ HitInfo IntersectRay(in Ray ray)
 			//Check all triangles in leaf
 			BVHHitInfo triHit = BVHHitInfo(FLT_MAX - 1.0, 0.0, 0.0, -1);
 			for (int i = currentNode.index; i < currentNode.index + currentNode.triangleCount; i++) {
-				bool didHit = RayTriangleIntersection(GetTriangleOptimized(i), ray, triHit);
+                TriangleOptimized tri = GetTriangleOptimized(i);
+
+				bool didHit = RayTriangleIntersection(tri, ray, triHit);
 				if (didHit && triHit.dist < hitInfo.dist) {
 					hitInfo.triIndex = i;
 					hitInfo.dist = triHit.dist;
 					hitInfo.u = triHit.u;
 					hitInfo.v = triHit.v;
+
+                    n0 = tri.n0;
+                    n1 = tri.n1;
+                    n2 = tri.n2;
 				}
 			}
 		}
@@ -339,10 +373,11 @@ HitInfo IntersectRay(in Ray ray)
 	if (hitInfo.triIndex >= 0) {
 		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
 		
-        vec3 n0 = vec3(tris_normals[hitInfo.triIndex * 9], tris_normals[hitInfo.triIndex * 9 + 1], tris_normals[hitInfo.triIndex * 9 + 2]);
-        vec3 n1 = vec3(tris_normals[hitInfo.triIndex * 9 + 3], tris_normals[hitInfo.triIndex * 9 + 4], tris_normals[hitInfo.triIndex * 9 + 5]);
-        vec3 n2 = vec3(tris_normals[hitInfo.triIndex * 9 + 6], tris_normals[hitInfo.triIndex * 9 + 7], tris_normals[hitInfo.triIndex * 9 + 8]);
-        returnHit.normal = (1.0f - hitInfo.u - hitInfo.v) * n0 + hitInfo.u * n1 + hitInfo.v * n2;
+        //uint normalIndex = hitInfo.triIndex * 9;
+        // vec3 n0 = vec3(tris_normals[normalIndex], tris_normals[normalIndex + 1], tris_normals[normalIndex + 2]);
+        // vec3 n1 = vec3(tris_normals[normalIndex + 3], tris_normals[normalIndex + 4], tris_normals[normalIndex + 5]);
+        // vec3 n2 = vec3(tris_normals[normalIndex + 6], tris_normals[normalIndex + 7], tris_normals[normalIndex + 8]);
+        returnHit.normal = (1.0 - hitInfo.u - hitInfo.v) * n0 + hitInfo.u * n1 + hitInfo.v * n2;
 
         returnHit.materialIndex = tris_mats[hitInfo.triIndex];
 	}
@@ -360,13 +395,9 @@ void main() {
 
     uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
 
-    mat4 inverseViewMatrx = inverse(camdata.viewMatrix);
-
-    vec4 target = camdata.inverseProjectionMatrix * vec4(uvCentered.x, uvCentered.y, 1.f, 1.f);
-
     Ray ray;
     ray.Origin = camdata.camPos;
-    ray.Direction = normalize(vec3(inverseViewMatrx * vec4(normalize(vec3(target) / target.w), 0)));
+    ray.Direction = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
 
     for (int i = 0; i < 8; i++){
         ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
@@ -414,8 +445,8 @@ void main() {
             //}
         }
         else {
-            vec3 diffuseRayDir = normalize(hitInfo.normal + RandomInUnitSphere(randomSeed));
-           // vec3 diffuseRayDir = normalize(hitInfo.normal + RandomDirection(randomSeed));
+            //vec3 diffuseRayDir = normalize(hitInfo.normal + RandomInUnitSphere(randomSeed));
+            vec3 diffuseRayDir = normalize(hitInfo.normal + RandomDirection(randomSeed));
             vec3 reflectedVector = reflect(ray.Direction, hitInfo.normal);
             reflectedVector = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
 
@@ -442,23 +473,16 @@ void main() {
         contribution *= 1.0f / p;
     }
     
-    
 
-
-
-
-
-
-
-    // Accumulate as running average
-    //vec4 colorIncrease = (vec4(finalColor, 1.0) - img_out[gl_GlobalInvocationID.x]) / camdata.frameindex; 
-    //img_out[gl_GlobalInvocationID.x] += colorIncrease;
 
     vec4 oldColor = img_accu[gl_GlobalInvocationID.x];
     vec4 newColor = oldColor + ((vec4(finalColor, 1.0) - oldColor) / camdata.frameindex); 
     img_accu[gl_GlobalInvocationID.x] = newColor;
 
     // Color corrected image
-    vec3 colorCorrected = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
-    img_out[gl_GlobalInvocationID.x] = vec4(colorCorrected, 1.0);
+    finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
+
+
+
+    img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
 }

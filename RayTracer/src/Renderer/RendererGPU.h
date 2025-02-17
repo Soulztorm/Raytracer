@@ -1,24 +1,28 @@
 #include "Renderer.h"
+#include <thread>
 
 #define KOMPUTE_DISABLE_VK_DEBUG_LAYERS
 #include <kompute/Kompute.hpp>
 
 struct PushConsts
 {
-    glm::mat4 viewMatrix;
-    glm::mat4 inverseProjectionMatrix;
+   // glm::mat4 viewMatrix;
+   // glm::mat4 inverseProjectionMatrix;
     glm::vec3 camPos;
     uint32_t frameIndex;
+    uint32_t renderMode;
+    bool useACE;
     float exposure;
 };
 
 class RendererGPU : public Renderer {
 public:
-    void InitGPU(Scene* scene, BVH* bvh);
+    void InitGPU(Scene* scene, BVH* bvh, Camera* cam);
     void RenderGPU(Camera* camera);
 
     virtual bool OnResize(uint32_t width, uint32_t height) override;
     virtual void ResetFrameIndex() override;
+    virtual bool OnCameraMoved() override;
 
 private:
     std::vector<uint32_t> CompileShader(const std::string& filepath);
@@ -38,9 +42,8 @@ private:
     std::vector<float> m_kp_consts;
     std::vector<PushConsts> m_kp_pushConsts;
 
-    // Final outbut buffer with rgba pixels
-    std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;
-    std::shared_ptr<kp::TensorT<float>> m_buf_imgAccu;
+    // Ray directions
+    std::shared_ptr<kp::TensorT<float>> m_buf_raydirs;
 
     // Node buffers
     std::shared_ptr<kp::TensorT<float>> m_buf_nodes_BBoxes;
@@ -48,10 +51,16 @@ private:
 
     // Triangle data
     std::shared_ptr<kp::TensorT<float>> m_buf_tris_opt;
-    std::shared_ptr<kp::TensorT<float>> m_buf_tris_normals;
+    //std::shared_ptr<kp::TensorT<float>> m_buf_tris_normals;
     std::shared_ptr<kp::TensorT<int>> m_buf_tris_mats;
     std::shared_ptr<kp::TensorT<float>> m_buf_materials;
 
     // HDRI
     std::shared_ptr<kp::ImageT<float>> m_buf_hdri;
+
+    // Final outbut buffer with rgba pixels
+    std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;
+    std::shared_ptr<kp::TensorT<float>> m_buf_imgAccu;
+
+    std::thread m_copyThread;
 };

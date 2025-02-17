@@ -63,7 +63,7 @@ public:
 		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
 
 		if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
-		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water-closed.obj", config)) {
+		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water.obj", config)) {
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();
 			auto& materials = Reader.GetMaterials();
@@ -169,14 +169,16 @@ public:
 			m_bvh = std::make_shared<BVH>(m_scene);
 			std::cout << "NodeCount: " << m_bvh->GetNodeCount();
 
-			m_renderer.InitGPU(&m_scene, m_bvh.get());
+			m_renderer.InitGPU(&m_scene, m_bvh.get(), &m_camera);
 		}		
 	}
 
 	virtual void OnUpdate(float ts) override
 	{
-		if (m_camera.OnUpdate(ts))
+		if (m_camera.OnUpdate(ts)) {
+			m_renderer.OnCameraMoved();
 			m_renderer.ResetFrameIndex();
+		}
 	}
 
 	virtual void OnUIRender() override
@@ -252,8 +254,8 @@ public:
 		Timer timer;
 
 		// resize if needed
-		m_renderer.OnResize(m_viewportWidth, m_viewportHeight);
 		m_camera.OnResize(m_viewportWidth, m_viewportHeight);
+		m_renderer.OnResize(m_viewportWidth, m_viewportHeight);
 
 		// render
 		if (m_renderer.GetSettings().UseGPU)

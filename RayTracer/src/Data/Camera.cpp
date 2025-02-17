@@ -14,8 +14,8 @@ Camera::Camera(float verticalFOV, float nearClip, float farClip)
 	//m_ForwardDirection = glm::normalize(glm::vec3(-1, -0.7, -1));
 	//m_Position = glm::vec3(0.9, 1, 0.9);
 
-	m_Position = glm::vec3(0, 0, 0);
-	m_ForwardDirection = glm::vec3(0, 0, 1);
+	m_Position = glm::vec3(-5, 3, 0);
+	m_ForwardDirection = glm::vec3(1, 0, 0);
 
 	RecalculateView();
 	RecalculateRayDirections();
