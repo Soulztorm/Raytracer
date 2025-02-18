@@ -62,7 +62,8 @@ public:
 
 		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
 
-		if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
+		if (Reader.ParseFromFile("../Assets/sponza-scene/sponza-mats.obj", config)) {
+		//if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
 		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water.obj", config)) {
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();
@@ -73,9 +74,9 @@ public:
 			{
 				Material& mat = m_scene.materials.emplace_back();
 
-				mat.Albedo = glm::max(
-					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]),
-					glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
+				mat.Albedo = 
+					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]);
+					//glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
 				mat.Emission = 2.0f * glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
 				mat.Roughness = (1024.0f - _mat.shininess) / 1024.0f;
 				mat.IOR = _mat.ior;
@@ -199,10 +200,15 @@ public:
 		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.0001f, 0.0f, 10.0f);
 		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.05f, 0.0f, 10000.0f);
 
+		ImGui::DragFloat("Sky X", &m_renderer.GetSettings().SkyX, 0.01f, 0.0f, 1.0f);
+		ImGui::DragFloat("Sky Y", &m_renderer.GetSettings().SkyY, 0.01f, 0.0f, 1.0f);
+
 		if (m_renderer.GetSettings().RenderMode != oldSettings.RenderMode || 
 			m_renderer.GetSettings().UseGPU != oldSettings.UseGPU ||
 			m_renderer.GetSettings().DoF_Strength != oldSettings.DoF_Strength ||
-			m_renderer.GetSettings().DoF_Distance != oldSettings.DoF_Distance) 
+			m_renderer.GetSettings().DoF_Distance != oldSettings.DoF_Distance ||
+			m_renderer.GetSettings().SkyY != oldSettings.SkyY ||
+			m_renderer.GetSettings().SkyX != oldSettings.SkyX)
 			m_renderer.ResetFrameIndex();
 
 		//ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");

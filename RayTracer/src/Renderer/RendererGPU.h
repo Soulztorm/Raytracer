@@ -15,6 +15,8 @@ struct PushConsts
     float exposure;
     float dof_dist;
     float dof_strength;
+    float skyX;
+    float skyY;
     bool useACE;
 };
 

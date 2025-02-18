@@ -187,6 +187,8 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].exposure = m_settings.Exposure;
 	m_kp_pushConsts[0].dof_dist = m_settings.DoF_Distance;
 	m_kp_pushConsts[0].dof_strength = m_settings.DoF_Strength;
+	m_kp_pushConsts[0].skyX = m_settings.SkyX;
+	m_kp_pushConsts[0].skyY = m_settings.SkyY;
 
 	// Run the shader
 	m_kp_manager.sequence()

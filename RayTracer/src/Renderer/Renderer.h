@@ -104,15 +104,18 @@ public:
 
 		bool Render = true;
 		bool Accumulate = true;
-		bool UseACE_Color = false;
+		bool UseACE_Color = true;
 		uint32_t Bounces = 8;
 
-		uint32_t RenderMode = 1;
+		uint32_t RenderMode = 0;
 
 		float Exposure = 1.0f;
 
 		float DoF_Strength = 0.1f;
 		float DoF_Distance = 20.0f;
+
+		float SkyX = 0.0f;
+		float SkyY = 0.0f;
 		// Basically AA
 		float CamLookatJitter = 0.001f;
 	};
