@@ -88,6 +88,11 @@ void RendererGPU::FillBuffers() {
 }
 
 
+RendererGPU::~RendererGPU()
+{
+	m_kp_manager.destroy();
+}
+
 void RendererGPU::InitGPU(Scene* scene, BVH* bvh, Camera* cam) {
 	m_activeScene = scene;
 	m_activeBVH = bvh;
@@ -96,7 +101,7 @@ void RendererGPU::InitGPU(Scene* scene, BVH* bvh, Camera* cam) {
 	// Compile the shader
 	m_kp_shader = CompileShader("src/Shaders/path_tracer.comp");
 
-	m_kp_pushConsts = { { glm::vec3(0), 0, m_settings.RenderMode, m_settings.UseACE_Color, m_settings.Exposure } };
+	m_kp_pushConsts = { PushConsts() };
 
 	FillBuffers();
 
@@ -107,15 +112,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 	bool didResize = Renderer::OnResize(width, height);
 
 	if (didResize) {
-		std::vector<float> rayDirArray(width * height * 3);
-		if (m_activeCamera->GetRayDirections().size()  == width * height) {
-			for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
-				rayDirArray[r*3] = m_activeCamera->GetRayDirections()[r].x;
-				rayDirArray[r*3+1] = m_activeCamera->GetRayDirections()[r].y;
-				rayDirArray[r*3+2] = m_activeCamera->GetRayDirections()[r].z;
-			}
-		}
-		m_buf_raydirs = m_kp_manager.tensor(rayDirArray);
+		m_buf_raydirs = m_kp_manager.tensor(std::vector<float>(width * height * 3));
 
 		m_buf_imgOut = m_kp_manager.tensor(std::vector<float>(width * height * 4));
 		m_buf_imgAccu = m_kp_manager.tensor(std::vector<float>(width * height * 4), kp::Memory::MemoryTypes::eStorage);
@@ -141,7 +138,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 
 		m_inialized = true;
 
-		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_raydirs });
+		m_rayDirsDirty = true;
 	}
 	
 	return didResize;
@@ -155,30 +152,41 @@ void RendererGPU::ResetFrameIndex()
 		m_buf_imgOut->setData(emptyBuffer);
 		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_imgOut });
 	}
+
 	//m_kp_manager.sequence()->eval<kp::OpSyncLocal>({ m_buf_imgOut });
 	//m_Image->SetData(m_buf_imgOut->data());
 }
 
 bool RendererGPU::OnCameraMoved()
 {
-	std::vector<float> rayDirArray(m_activeCamera->GetRayDirections().size() * 3);
-	for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
-		m_buf_raydirs->data()[r * 3] = m_activeCamera->GetRayDirections()[r].x;
-		m_buf_raydirs->data()[r * 3 + 1] = m_activeCamera->GetRayDirections()[r].y;
-		m_buf_raydirs->data()[r * 3 + 2] = m_activeCamera->GetRayDirections()[r].z;
-	}
-	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_raydirs });
+	m_rayDirsDirty = true;
 	return true;
 }
 
 void RendererGPU::RenderGPU(Camera* camera)
 {
+	if (m_rayDirsDirty) {
+		std::vector<float> rayDirArray(m_activeCamera->GetRayDirections().size() * 3);
+		for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
+			m_buf_raydirs->data()[r * 3] = m_activeCamera->GetRayDirections()[r].x;
+			m_buf_raydirs->data()[r * 3 + 1] = m_activeCamera->GetRayDirections()[r].y;
+			m_buf_raydirs->data()[r * 3 + 2] = m_activeCamera->GetRayDirections()[r].z;
+		}
+		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_raydirs });
+
+		m_rayDirsDirty = false;
+	}
+
 	// Set the camera stuff
-	m_kp_pushConsts[0].camPos = camera->GetPosition();
+	m_kp_pushConsts[0].camPos = glm::vec4(camera->GetPosition(), 0);
+	m_kp_pushConsts[0].camRight = glm::vec4(camera->GetRight(), 0);
+	m_kp_pushConsts[0].camUp = glm::vec4(camera->GetUp(), 0);
 	m_kp_pushConsts[0].frameIndex = m_frameindex;
-	m_kp_pushConsts[0].exposure = m_settings.Exposure;
 	m_kp_pushConsts[0].renderMode = m_settings.RenderMode;
 	m_kp_pushConsts[0].useACE = m_settings.UseACE_Color;
+	m_kp_pushConsts[0].exposure = m_settings.Exposure;
+	m_kp_pushConsts[0].dof_dist = m_settings.DoF_Distance;
+	m_kp_pushConsts[0].dof_strength = m_settings.DoF_Strength;
 
 	// Run the shader
 	m_kp_manager.sequence()
@@ -189,6 +197,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 		m_kp_manager.sequence()->eval<kp::OpSyncLocal>({ m_buf_imgOut });
 		m_Image->SetData(m_buf_imgOut->data());
 	}
+
 
 	m_frameindex++;
 }

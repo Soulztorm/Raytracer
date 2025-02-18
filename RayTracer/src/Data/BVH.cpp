@@ -3,6 +3,9 @@
 
 #define MAX_DEPTH 32
 
+#define COST_TRI 0.05
+#define COST_TRAVERSE 2.0
+
 BVH::BVH(const Scene& scene)
 {
 	m_trianglesOBJ = scene.triangles;
@@ -153,7 +156,7 @@ SplitInfo BVH::ChooseSplitAxis(const BoundingBox& boundingBox, int triIndex, int
 
 
 	for (char splitAxis = 0; splitAxis < 3; splitAxis++) {
-		for (float delta = 0.0f; delta < 1.0f; delta += 0.1f) {
+		for (float delta = 0.0f; delta < 1.0f; delta += 0.05f) {
 			float splitPlane = boundingBox.center[splitAxis] - boundingBox.extends[splitAxis] + delta * boundingBox.extends[splitAxis] * 2.0f;
 
 			int triCountLeft = 0;
@@ -177,7 +180,12 @@ SplitInfo BVH::ChooseSplitAxis(const BoundingBox& boundingBox, int triIndex, int
 			if (triCountLeft == 0 || triCountRight == 0)
 				continue;
 
+			//double areaParent = boundingBox.getArea();
+			//double areaLeft = bbLeft.getArea();
+			//double areaRight = bbRight.getArea();
+			//float cost = COST_TRAVERSE + (areaLeft / areaParent) * triCountLeft * COST_TRI + (areaRight / areaParent) * triCountRight * COST_TRI;
 			float cost = triCountLeft * bbLeft.getArea() + triCountRight * bbRight.getArea();
+			
 			if (cost < result.cost) {
 				result.cost = cost;
 				result.axis = splitAxis;

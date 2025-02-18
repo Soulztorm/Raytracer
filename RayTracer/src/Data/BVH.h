@@ -21,7 +21,7 @@ public:
 		this->extends = 0.5f * (max - min);
 	}
 
-	float getArea() {
+	const float getArea() const {
 		float xy = 2.0f * extends[0] * extends[1];
 		float yz = 2.0f * extends[1] * extends[2];
 		float zx = 2.0f * extends[2] * extends[0];

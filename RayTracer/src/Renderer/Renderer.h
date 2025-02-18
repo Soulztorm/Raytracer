@@ -111,7 +111,7 @@ public:
 
 		float Exposure = 1.0f;
 
-		float DoF_Strength = 0.05f;
+		float DoF_Strength = 0.1f;
 		float DoF_Distance = 20.0f;
 		// Basically AA
 		float CamLookatJitter = 0.001f;

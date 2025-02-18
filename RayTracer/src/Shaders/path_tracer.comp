@@ -30,11 +30,15 @@ layout(constant_id = 1) const float image_height = 0;
 
 // Kompute supports push constants updated on dispatch
 layout(push_constant) readonly uniform PushConstants {
-    vec3 camPos;
+    vec4 camPos;
+    vec4 camRight;
+    vec4 camUp;
     uint frameindex;
     uint rendermode;
-    bool useACE;
     float exposure;
+    float dofDist;
+    float dofStrength;
+    bool useACE;
 } camdata;
 
 #define PI 3.14159265358
@@ -234,6 +238,11 @@ vec3 RandomInUnitSphere(inout uint state)
     return normalize(vec3(RandomValue(state) * 2.0 - 1.0, RandomValue(state) * 2.0 - 1.0f, RandomValue(state) * 2.0 - 1.0f));
 }
 
+vec2 RandomInCircle(inout uint state) {
+    float angle = RandomValue(state) * 2.0 * PI;
+    return vec2(cos(angle), sin(angle)) * sqrt(RandomValue(state));
+}
+
 
 vec4 SampleHDRIFromDirection(in vec3 worldDir)
 {
@@ -372,13 +381,7 @@ HitInfo IntersectRay(in Ray ray)
 	//If we hit something, work out the position, normal and material
 	if (hitInfo.triIndex >= 0) {
 		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
-		
-        //uint normalIndex = hitInfo.triIndex * 9;
-        // vec3 n0 = vec3(tris_normals[normalIndex], tris_normals[normalIndex + 1], tris_normals[normalIndex + 2]);
-        // vec3 n1 = vec3(tris_normals[normalIndex + 3], tris_normals[normalIndex + 4], tris_normals[normalIndex + 5]);
-        // vec3 n2 = vec3(tris_normals[normalIndex + 6], tris_normals[normalIndex + 7], tris_normals[normalIndex + 8]);
         returnHit.normal = (1.0 - hitInfo.u - hitInfo.v) * n0 + hitInfo.u * n1 + hitInfo.v * n2;
-
         returnHit.materialIndex = tris_mats[hitInfo.triIndex];
 	}
 
@@ -387,91 +390,118 @@ HitInfo IntersectRay(in Ray ray)
 
 
 void main() {
-    vec3 finalColor = vec3(0.0);
-    vec3 contribution = vec3(1.0);
-
+    uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
     vec2 uv = vec2((gl_GlobalInvocationID.x % uint(image_width)) / image_width, (gl_GlobalInvocationID.x / image_width) / image_height); 
     vec2 uvCentered = uv * 2.f - 1.f;
 
-    uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
+    vec3 finalColor = vec3(0.0);
+    vec3 contribution = vec3(1.0);
+
+
+
 
     Ray ray;
-    ray.Origin = camdata.camPos;
-    ray.Direction = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
 
-    for (int i = 0; i < 8; i++){
-        ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
-        HitInfo hitInfo = IntersectRay(ray);
+    // Defocus ray origin
+	vec2 camJitter = RandomInCircle(randomSeed) * camdata.dofStrength;
+	ray.Origin = camdata.camPos.xyz + camdata.camRight.xyz * camJitter.x + camdata.camUp.xyz * camJitter.y;
 
-        // No hit
-        if (hitInfo.materialIndex < 0){
-            vec3 skyColor = SampleHDRIFromDirection(ray.Direction).rgb;
-            finalColor += contribution * skyColor;
-            break;
+	// Defocus at viewpoint, basically anti aliasing
+	vec2 lookatJitter = RandomInCircle(randomSeed) * 0.01;
+	vec3 lookatVector = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
+	vec3 lookatPosition = lookatVector * camdata.dofDist + camdata.camPos.xyz + camdata.camRight.xyz * lookatJitter.x + camdata.camUp.xyz * lookatJitter.y;
+	ray.Direction = normalize(lookatPosition - ray.Origin);
+
+
+    if (camdata.rendermode == 0){
+        for (int i = 0; i < 8; i++){
+            ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+            HitInfo hitInfo = IntersectRay(ray);
+
+            // No hit
+            if (hitInfo.materialIndex < 0){
+                vec3 skyColor = SampleHDRIFromDirection(ray.Direction).rgb;
+                finalColor += contribution * skyColor;
+                break;
+            }
+
+            Material mat = GetMaterial(hitInfo.materialIndex);
+
+            bool doTransmission = false;
+            //bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
+            //glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
+
+            // New ray origin offset from last hit position along surface normal
+            ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
+
+
+            if (mat.Transparency > 0.0f) {
+                // fresnel term    0: no reflect   1: full reflect
+                //float fresnel = glm::dot(ray.Direction, -normalSurface);
+                float fresnel = dot(ray.Direction, -hitInfo.normal);
+
+                //if (Walnut::Random::Float() < fresnel) {
+                //if (Random::Float() < fresnel) {
+                doTransmission = true;
+                //}
+            }
+
+
+            // Transmission or reflection ray?
+            if (doTransmission) {
+                //// glsl way (me no workeee, why?)
+                //ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
+                //continue;
+
+                Ray refractionRay;
+                //if (RefractionRay(ray.Direction, hitInfo.normal, hitInfo.position, mat.IOR, refractionRay)) {
+                //    ray = refractionRay;
+            //     continue;
+                //}
+            }
+            else {
+                //vec3 diffuseRayDir = normalize(hitInfo.normal + RandomInUnitSphere(randomSeed));
+                vec3 diffuseRayDir = normalize(hitInfo.normal + RandomDirection(randomSeed));
+                vec3 reflectedVector = reflect(ray.Direction, hitInfo.normal);
+                reflectedVector = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+
+                //glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
+                //glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
+
+                ray.Direction = reflectedVector;
+            }
+
+
+            finalColor += mat.Emission * contribution;
+            contribution *= mat.Albedo;
+
+
+            // Russian Roulette
+            // As the throughput gets smaller, the ray is more likely to get terminated early.
+            // Survivors have their value boosted to make up for fewer samples being in the average.
+            
+            float p = max(contribution.r, max(contribution.g, contribution.b));
+            if (RandomValue(randomSeed) > p)
+                break;
+
+            // Add the energy we 'lose' by randomly terminating paths
+            contribution *= 1.0f / p;
         }
-
-        Material mat = GetMaterial(hitInfo.materialIndex);
-
-        bool doTransmission = false;
-        //bool hitInside = glm::dot(ray.Direction, hitdata.Normal) > 0.0f;
-        //glm::vec3 normalSurface = hitInside ? -hitdata.Normal : hitdata.Normal;
-
-        // New ray origin offset from last hit position along surface normal
-        ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
-
-
-        if (mat.Transparency > 0.0f) {
-            // fresnel term    0: no reflect   1: full reflect
-            //float fresnel = glm::dot(ray.Direction, -normalSurface);
-            float fresnel = dot(ray.Direction, -hitInfo.normal);
-
-            //if (Walnut::Random::Float() < fresnel) {
-            //if (Random::Float() < fresnel) {
-            doTransmission = true;
-            //}
-        }
-
-
-        // Transmission or reflection ray?
-        if (doTransmission) {
-            //// glsl way (me no workeee, why?)
-            //ray.Direction = glm::refract(ray.Direction, hitdata.Normal, hitInside ? mat.IOR : 1.0f / mat.IOR);
-            //continue;
-
-            Ray refractionRay;
-            //if (RefractionRay(ray.Direction, hitInfo.normal, hitInfo.position, mat.IOR, refractionRay)) {
-            //    ray = refractionRay;
-        //     continue;
-            //}
-        }
-        else {
-            //vec3 diffuseRayDir = normalize(hitInfo.normal + RandomInUnitSphere(randomSeed));
-            vec3 diffuseRayDir = normalize(hitInfo.normal + RandomDirection(randomSeed));
-            vec3 reflectedVector = reflect(ray.Direction, hitInfo.normal);
-            reflectedVector = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
-
-            //glm::vec3 randomHemisphereVector = glm::normalize(Util::RandomHemisphere(hitdata.Normal, mat.Roughness));
-            //glm::vec3 reflectedVector = glm::reflect(ray.Direction, randomHemisphereVector);
-
-            ray.Direction = reflectedVector;
-        }
-
-
-        finalColor += mat.Emission * contribution;
-        contribution *= mat.Albedo;
-
-
-        // Russian Roulette
-        // As the throughput gets smaller, the ray is more likely to get terminated early.
-        // Survivors have their value boosted to make up for fewer samples being in the average.
-        
-        float p = max(contribution.r, max(contribution.g, contribution.b));
-        if (RandomValue(randomSeed) > p)
-            break;
-
-        // Add the energy we 'lose' by randomly terminating paths
-        contribution *= 1.0f / p;
     }
+    else{
+            ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+            HitInfo hitInfo = IntersectRay(ray);
+
+            // No hit
+            if (hitInfo.materialIndex < 0){
+                finalColor = SampleHDRIFromDirection(ray.Direction).rgb;
+            }
+            else{
+                finalColor = (hitInfo.normal + normalize(vec3(1))) * 0.5;
+            }
+
+    }
+    
     
 
 
@@ -480,8 +510,10 @@ void main() {
     img_accu[gl_GlobalInvocationID.x] = newColor;
 
     // Color corrected image
-    finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
-
+    if (camdata.useACE)
+        finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
+    else
+        finalColor = camdata.exposure * newColor.rgb;
 
 
     img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);

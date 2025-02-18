@@ -7,7 +7,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-#define MAX_LUMINANCE 10.0f
+#define MAX_LUMINANCE 20.0f
 
 bool HDRI::LoadFromFile(const char* filename) {
 	const char* err = NULL;

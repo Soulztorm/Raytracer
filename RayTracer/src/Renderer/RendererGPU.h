@@ -6,17 +6,22 @@
 
 struct PushConsts
 {
-   // glm::mat4 viewMatrix;
-   // glm::mat4 inverseProjectionMatrix;
-    glm::vec3 camPos;
+    // These have to be 16 byte aligned, that's why vec4 instead of vec3
+    glm::vec4 camPos;
+    glm::vec4 camRight;
+    glm::vec4 camUp;
     uint32_t frameIndex;
     uint32_t renderMode;
-    bool useACE;
     float exposure;
+    float dof_dist;
+    float dof_strength;
+    bool useACE;
 };
 
 class RendererGPU : public Renderer {
 public:
+    ~RendererGPU();
+
     void InitGPU(Scene* scene, BVH* bvh, Camera* cam);
     void RenderGPU(Camera* camera);
 
@@ -31,6 +36,7 @@ private:
     void FillBuffers();
 
     bool m_inialized = false;
+    bool m_rayDirsDirty = true;
 
     kp::Manager m_kp_manager;
     std::shared_ptr<kp::Algorithm> m_kp_algorithm;

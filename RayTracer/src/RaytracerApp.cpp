@@ -183,8 +183,7 @@ public:
 
 	virtual void OnUIRender() override
 	{
-		int currentRenderMode = m_renderer.GetSettings().RenderMode;
-		bool usingGPU = m_renderer.GetSettings().UseGPU;
+		Renderer::Settings oldSettings = m_renderer.GetSettings();
 
 		// Settings
 		ImGui::Begin("Settings");
@@ -197,10 +196,13 @@ public:
 		ImGui::Checkbox("Use ACE Color", &m_renderer.GetSettings().UseACE_Color);
 		ImGui::DragInt("# Bounces", (int*)&m_renderer.GetSettings().Bounces, 0.05f, 0);
 
-		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.001f, 0.0f, 0.1f);
-		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.01f, 0.0f, 10000.0f);
+		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.0001f, 0.0f, 10.0f);
+		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.05f, 0.0f, 10000.0f);
 
-		if (m_renderer.GetSettings().RenderMode != currentRenderMode || m_renderer.GetSettings().UseGPU != usingGPU)
+		if (m_renderer.GetSettings().RenderMode != oldSettings.RenderMode || 
+			m_renderer.GetSettings().UseGPU != oldSettings.UseGPU ||
+			m_renderer.GetSettings().DoF_Strength != oldSettings.DoF_Strength ||
+			m_renderer.GetSettings().DoF_Distance != oldSettings.DoF_Distance) 
 			m_renderer.ResetFrameIndex();
 
 		//ImGui::SliderFloat3("Light Position:", glm::value_ptr(m_scene.lightPosition), -10.0f, 10.0f, "%.2f");
@@ -236,6 +238,21 @@ public:
 
 		m_viewportWidth = (uint32_t)ImGui::GetContentRegionAvail().x;
 		m_viewportHeight = (uint32_t)ImGui::GetContentRegionAvail().y;
+
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_::ImGuiMouseButton_Middle)) {
+			auto pos = glm::vec2(ImGui::GetMousePos().x - ImGui::GetWindowPos().x, ImGui::GetMousePos().y - ImGui::GetWindowPos().y);
+			Ray ray;
+			ray.Origin = m_camera.GetPosition();
+			ray.Direction = m_camera.GetRayDirections()[pos.y * m_viewportWidth + pos.x];
+			ray.DirectionInverse = glm::vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+
+			auto hitinfo = m_bvh->IntersectRay(&ray);
+			if (hitinfo.materialIndex > 0)
+			{
+				m_renderer.GetSettings().DoF_Distance = glm::length(hitinfo.position - ray.Origin);
+				m_renderer.ResetFrameIndex();
+			}
+		}
 
 		auto img = m_renderer.GetImage();
 		if (img) {
@@ -287,8 +304,8 @@ Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 {
 	Walnut::ApplicationSpecification spec;
 	spec.Name = "Raytracer go BRRRRRRR";
-	spec.Width = 900;
-	spec.Height = 480;
+	spec.Width = 1280;
+	spec.Height = 720;
 
 	Walnut::Application* app = new Walnut::Application(spec);
 	app->PushLayer<RaytracerLayer>();
