@@ -111,7 +111,7 @@ public:
 
 		float Exposure = 1.0f;
 
-		float DoF_Strength = 0.1f;
+		float DoF_Strength = 0.005f;
 		float DoF_Distance = 20.0f;
 
 		float SkyX = 0.0f;

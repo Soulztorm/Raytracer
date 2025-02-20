@@ -5,7 +5,8 @@
 std::vector<uint32_t> RendererGPU::CompileShader(const std::string& filepath)
 {
 	std::string filepath_out = (filepath + ".spv");
-	std::string glslCompilerArgs = "glslangValidator -V \"" + std::filesystem::absolute(filepath).string() + "\" -o \"" + std::filesystem::absolute(filepath_out).string() + "\"";
+	std::string glslCompilerArgs = "glslc \"" + std::filesystem::absolute(filepath).string() + "\" --target-env=vulkan1.4 -o \"" + std::filesystem::absolute(filepath_out).string() + "\"";
+	//std::string glslCompilerArgs = "glslangValidator -V \"" + std::filesystem::absolute(filepath).string() + "\" -o \"" + std::filesystem::absolute(filepath_out).string() + "\"";
 	if (system(glslCompilerArgs.c_str()))
 		throw std::runtime_error("Error running glslangValidator command");
 	std::ifstream fileStream(filepath_out, std::ios::binary);
@@ -60,7 +61,7 @@ void RendererGPU::FillBuffers() {
 		hdriArray[i * 4 + 3] = m_activeScene->hdri.GetData()[i].a;
 	}
 	m_buf_hdri = m_kp_manager.imageT<float>(hdriArray, hdri_width, hdri_height, 4);
-
+	
 
 	// Materials
 	std::vector<float> materialArray(m_activeScene->materials.size() * 9);
@@ -93,7 +94,7 @@ void RendererGPU::FillBuffers() {
 			textureIndexArray[i*3 + 1] = mat.TexDiffuse.width;
 			textureIndexArray[i*3 + 2] = mat.TexDiffuse.height;
 
-			currentTexPtr += texSize * 4;
+			currentTexPtr += texSize;
 		}
 	}
 

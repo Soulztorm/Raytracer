@@ -65,6 +65,7 @@ public:
 
 		//fs::path objPath("../Assets/sponza-scene/sponza-mats.obj");
 		fs::path objPath("../Assets/sponza/sponza.obj");
+		//fs::path objPath("../Assets/fireplace_room/fireplace_room.obj");
 
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
@@ -91,8 +92,10 @@ public:
 				mat.Emission = 2.0f * glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
 				mat.Roughness = (1024.0f - _mat.shininess) / 1024.0f;
 				mat.IOR = _mat.ior;
-				if (_mat.name == "water")
-					mat.Transparency = 1.0f;
+
+				if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0)
+					mat.Transparency = 1.0f - _mat.transmittance[0];
+
 				mat.Name = _mat.name;
 
 

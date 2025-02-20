@@ -78,5 +78,4 @@ private:
     std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;
     std::shared_ptr<kp::TensorT<float>> m_buf_imgAccu;
 
-    std::thread m_copyThread;
 };

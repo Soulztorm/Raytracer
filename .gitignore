@@ -11,3 +11,5 @@ bin-int
 /RayTracer/*.vcxproj.filters
 /RayTracer/*.vcxproj.user
 /Assets
+/RayTracer/imgui.ini
+*.spv
