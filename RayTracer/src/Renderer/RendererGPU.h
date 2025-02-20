@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Renderer.h"
 #include <thread>
 
@@ -12,6 +14,7 @@ struct PushConsts
     glm::vec4 camUp;
     uint32_t frameIndex;
     uint32_t renderMode;
+    uint32_t bounces;
     float exposure;
     float dof_dist;
     float dof_strength;
@@ -65,6 +68,11 @@ private:
 
     // HDRI
     std::shared_ptr<kp::ImageT<float>> m_buf_hdri;
+
+    // Textures
+    std::shared_ptr<kp::TensorT<float>> m_buf_textures;
+    std::shared_ptr<kp::TensorT<int>> m_buf_textureDiffuseIndices;
+
 
     // Final outbut buffer with rgba pixels
     std::shared_ptr<kp::TensorT<float>> m_buf_imgOut;

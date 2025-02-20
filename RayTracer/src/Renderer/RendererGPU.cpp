@@ -34,12 +34,12 @@ void RendererGPU::FillBuffers() {
 
 	// Fill triangle buffer
 	std::vector<TriangleOptimized>* trisOpt = m_activeBVH->GetTrisOpt();
-	std::vector<float> triOptArray(trisOpt->size() * 18);
+	std::vector<float> triOptArray(trisOpt->size() * 24);
 	//std::vector<float> triNormalArray(trisOpt->size() * 9);
 	std::vector<int> triMatsArray(trisOpt->size());
 	for (int i = 0; i < trisOpt->size(); i++) {
 		TriangleOptimized t = trisOpt->at(i);
-		memcpy(&(triOptArray[i * 18]), &t, 6 * sizeof(glm::vec3));
+		memcpy(&(triOptArray[i * 24]), &t, 6 * sizeof(glm::vec3) + 3 * sizeof(glm::vec2));
 		//memcpy(&(triNormalArray[i * 9]), &(t.normal0), 3 * sizeof(glm::vec3));
 		triMatsArray[i] = t.materialIndex;
 	}
@@ -64,8 +64,12 @@ void RendererGPU::FillBuffers() {
 
 	// Materials
 	std::vector<float> materialArray(m_activeScene->materials.size() * 9);
+	std::vector<float> textureDiffuseArray;
+	std::vector<int> textureIndexArray(m_activeScene->materials.size() * 3, -1);
+
+	int currentTexPtr = 0;
 	for (int i = 0; i < m_activeScene->materials.size(); i++) {
-		Material mat = m_activeScene->materials[i];
+		const Material& mat = m_activeScene->materials[i];
 		materialArray[i * 9] = mat.Albedo.r;
 		materialArray[i * 9 + 1] = mat.Albedo.g;
 		materialArray[i * 9 + 2] = mat.Albedo.b;
@@ -75,8 +79,30 @@ void RendererGPU::FillBuffers() {
 		materialArray[i * 9 + 6] = mat.Roughness;
 		materialArray[i * 9 + 7] = mat.Transparency;
 		materialArray[i * 9 + 8] = mat.IOR;
+
+		// Textures
+		if (!mat.TexDiffuse.data.empty()) {
+			int texSize = mat.TexDiffuse.width * mat.TexDiffuse.height;
+			for (int d = 0; d < texSize; d++) {
+				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].r);
+				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].g);
+				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].b);
+				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].a);
+			}
+			textureIndexArray[i*3] = currentTexPtr;
+			textureIndexArray[i*3 + 1] = mat.TexDiffuse.width;
+			textureIndexArray[i*3 + 2] = mat.TexDiffuse.height;
+
+			currentTexPtr += texSize * 4;
+		}
 	}
+
 	m_buf_materials = m_kp_manager.tensor(materialArray);
+	m_buf_textures = m_kp_manager.tensor(textureDiffuseArray);
+	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureIndexArray);
+
+
+
 
 	// Upload buffers to GPU
 	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ 
@@ -84,6 +110,7 @@ void RendererGPU::FillBuffers() {
 		//m_buf_tris_opt, m_buf_tris_normals, 
 		m_buf_tris_opt, 
 		m_buf_tris_mats, m_buf_materials,
+		m_buf_textures, m_buf_textureDiffuseIndices,
 		m_buf_hdri});
 }
 
@@ -125,6 +152,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 			m_buf_tris_opt, 
 			//m_buf_tris_opt, m_buf_tris_normals, 
 			m_buf_tris_mats, m_buf_materials,
+			m_buf_textures, m_buf_textureDiffuseIndices,
 			m_buf_hdri,
 			m_buf_imgAccu, m_buf_imgOut
 		};
@@ -148,9 +176,9 @@ void RendererGPU::ResetFrameIndex()
 {
 	Renderer::ResetFrameIndex();
 	if (m_inialized) {
-		std::vector<float> emptyBuffer(m_buf_imgOut->size(), 0.0f);
-		m_buf_imgOut->setData(emptyBuffer);
-		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_imgOut });
+		//std::vector<float> emptyBuffer(m_buf_imgOut->size(), 0.0f);
+		//m_buf_imgOut->setData(emptyBuffer);
+		//m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_imgOut });
 	}
 
 	//m_kp_manager.sequence()->eval<kp::OpSyncLocal>({ m_buf_imgOut });
@@ -183,6 +211,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].camUp = glm::vec4(camera->GetUp(), 0);
 	m_kp_pushConsts[0].frameIndex = m_frameindex;
 	m_kp_pushConsts[0].renderMode = m_settings.RenderMode;
+	m_kp_pushConsts[0].bounces = m_settings.Bounces;
 	m_kp_pushConsts[0].useACE = m_settings.UseACE_Color;
 	m_kp_pushConsts[0].exposure = m_settings.Exposure;
 	m_kp_pushConsts[0].dof_dist = m_settings.DoF_Distance;
@@ -195,7 +224,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 		->eval<kp::OpAlgoDispatch>(m_kp_algorithm, m_kp_pushConsts);
 
 	// Every 10 frames or when moving fetch the image
-	if (m_frameindex % 10 == 0 || m_frameindex <= 1) {
+	if (m_frameindex % 20 == 1) {
 		m_kp_manager.sequence()->eval<kp::OpSyncLocal>({ m_buf_imgOut });
 		m_Image->SetData(m_buf_imgOut->data());
 	}

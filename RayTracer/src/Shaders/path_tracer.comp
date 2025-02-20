@@ -16,12 +16,15 @@ layout(set = 0, binding = 4) readonly buffer buf_tris_mats { int tris_mats[]; };
 // materials
 layout(set = 0, binding = 5) readonly buffer buf_mats { float mats[]; };
 
+layout(set = 0, binding = 6) readonly buffer buf_texturesDiffuse { float textures_diffuse[]; };
+layout(set = 0, binding = 7) readonly buffer buf_texturesDiffuseIndices { int textures_diffuseIdx[]; };
+
 // hdri
-layout(binding = 6, rgba32f) readonly uniform image2D hdri_image;
+layout(binding = 8, rgba32f) readonly uniform image2D hdri_image;
 
 // Output image
-layout(set = 0, binding = 7) buffer buf_img_accu { vec4 img_accu[]; };
-layout(set = 0, binding = 8) writeonly buffer buf_img_out { vec4 img_out[]; };
+layout(set = 0, binding = 9) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 10) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 
 
@@ -35,6 +38,7 @@ layout(push_constant) readonly uniform PushConstants {
     vec4 camUp;
     uint frameindex;
     uint rendermode;
+    uint bounces;
     float exposure;
     float dofDist;
     float dofStrength;
@@ -74,6 +78,7 @@ struct Node
 struct HitInfo {
 	vec3 position;
 	vec3 normal;
+    vec2 uv;
 	int materialIndex;
 };
 
@@ -92,10 +97,13 @@ struct TriangleOptimized
 	vec3 n0;
 	vec3 n1;
 	vec3 n2;
+	vec2 uv0;
+	vec2 uv1;
+	vec2 uv2;
 };
 
 TriangleOptimized GetTriangleOptimized(uint triIndex){
-    uint triOffset = 18 * triIndex;
+    uint triOffset = 24 * triIndex;
 
     vec3 v0 = vec3(
     tris_opt[triOffset],
@@ -127,7 +135,20 @@ TriangleOptimized GetTriangleOptimized(uint triIndex){
     tris_opt[triOffset + 16],
     tris_opt[triOffset + 17]);
 
-    return TriangleOptimized(v0, e1, e2, n0, n1, n2);
+    
+    vec2 uv0 = vec2(
+    tris_opt[triOffset + 18],
+    tris_opt[triOffset + 19]);
+
+    vec2 uv1 = vec2(
+    tris_opt[triOffset + 20],
+    tris_opt[triOffset + 21]);
+
+    vec2 uv2 = vec2(
+    tris_opt[triOffset + 22],
+    tris_opt[triOffset + 23]);
+
+    return TriangleOptimized(v0, e1, e2, n0, n1, n2, uv0, uv1, uv2);
 }
 
 struct Material {
@@ -347,6 +368,7 @@ HitInfo IntersectRay(in Ray ray)
 	nodeStack[stackIndex++] = 0;
     
     vec3 n0, n1, n2; 
+    vec2 uv0, uv1, uv2; 
 
 	while (stackIndex > 0) {
 		Node currentNode = GetNode(nodeStack[--stackIndex]);
@@ -368,6 +390,10 @@ HitInfo IntersectRay(in Ray ray)
                     n0 = tri.n0;
                     n1 = tri.n1;
                     n2 = tri.n2;
+
+                    uv0 = tri.uv0;
+                    uv1 = tri.uv1;
+                    uv2 = tri.uv2;
 				}
 			}
 		}
@@ -391,14 +417,16 @@ HitInfo IntersectRay(in Ray ray)
 	}
 	
 
-	HitInfo returnHit = HitInfo(vec3(0), vec3(0), -1);
+	HitInfo returnHit = HitInfo(vec3(0), vec3(0), vec2(0), -1);
 
 
 	//If we hit something, work out the position, normal and material
 	if (hitInfo.triIndex >= 0) {
-		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
-        returnHit.normal = (1.0 - hitInfo.u - hitInfo.v) * n0 + hitInfo.u * n1 + hitInfo.v * n2;
         returnHit.materialIndex = tris_mats[hitInfo.triIndex];
+		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
+        float w = (1.0 - hitInfo.u - hitInfo.v);
+        returnHit.normal = w * n0 + hitInfo.u * n1 + hitInfo.v * n2;
+        returnHit.uv = fract(w * uv0 + hitInfo.u * uv1 + hitInfo.v * uv2);
 	}
 
 	return returnHit;
@@ -430,7 +458,7 @@ void main() {
 
 
     if (camdata.rendermode == 0){
-        for (int i = 0; i < 8; i++){
+        for (int i = 0; i < camdata.bounces; i++){
             ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
             HitInfo hitInfo = IntersectRay(ray);
 
@@ -489,7 +517,24 @@ void main() {
 
 
             finalColor += mat.Emission * contribution;
-            contribution *= mat.Albedo;
+
+
+            vec3 albedoColor = mat.Albedo;
+
+            int texIndex = textures_diffuseIdx[hitInfo.materialIndex*3];
+            if (texIndex >= 0){
+                int texWidth = textures_diffuseIdx[hitInfo.materialIndex*3 + 1];
+                int texHeight = textures_diffuseIdx[hitInfo.materialIndex*3 + 2];
+
+                int px_x = int(hitInfo.uv.x * (texWidth - 1));
+                int px_y = int((1.0 - hitInfo.uv.y) * (texHeight - 1));
+
+                int px_idx = texIndex + 4*(px_y * texWidth + px_x);
+
+                albedoColor = vec3(textures_diffuse[px_idx], textures_diffuse[px_idx + 1], textures_diffuse[px_idx + 2]);
+            }
+
+            contribution *= albedoColor;
 
 
             // Russian Roulette
@@ -505,17 +550,33 @@ void main() {
         }
     }
     else{
-            ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
-            HitInfo hitInfo = IntersectRay(ray);
+        ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
+        HitInfo hitInfo = IntersectRay(ray);
 
-            // No hit
-            if (hitInfo.materialIndex < 0){
-                finalColor = SampleHDRIFromDirection(ray.Direction).rgb;
-            }
-            else{
-                finalColor = (hitInfo.normal + normalize(vec3(1))) * 0.5;
-            }
+        // No hit
+        if (hitInfo.materialIndex < 0){
+            finalColor = SampleHDRIFromDirection(ray.Direction).rgb;
+        }
+        else{
+            //finalColor = (hitInfo.normal + normalize(vec3(1))) * 0.5;
+            //finalColor = vec3(hitInfo.uv, 0);
 
+            int texIndex = textures_diffuseIdx[hitInfo.materialIndex*3];
+
+            if (texIndex >= 0){
+                int texWidth = textures_diffuseIdx[hitInfo.materialIndex*3 + 1];
+                int texHeight = textures_diffuseIdx[hitInfo.materialIndex*3 + 2];
+
+                int px_x = int(hitInfo.uv.x * (texWidth - 1));
+                int px_y = int((1.0 - hitInfo.uv.y) * (texHeight - 1));
+
+                int px_idx = texIndex + 4*(px_y * texWidth + px_x);
+
+                finalColor = vec3(textures_diffuse[px_idx], textures_diffuse[px_idx + 1], textures_diffuse[px_idx + 2]);
+            }
+            else
+                finalColor = vec3(1,0,1);
+        }
     }
     
     
@@ -525,12 +586,14 @@ void main() {
     vec4 newColor = oldColor + ((vec4(finalColor, 1.0) - oldColor) / camdata.frameindex); 
     img_accu[gl_GlobalInvocationID.x] = newColor;
 
-    // Color corrected image
-    if (camdata.useACE)
-        finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
-    else
-        finalColor = camdata.exposure * newColor.rgb;
+    if (camdata.frameindex % 20 == 1)
+    {
+        // Color corrected image
+        if (camdata.useACE)
+            finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
+        else
+            finalColor = camdata.exposure * newColor.rgb;
 
-
-    img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
+            img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
+    }
 }

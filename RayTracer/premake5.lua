@@ -24,17 +24,15 @@ project "RayTracer"
       "%{IncludeDir.kompute}",
    }
 
-   libdirs
-   {
-      "%{LibraryDir.kompute}",
+   links {      
+      "fmt",
+      "kp_logger",
+      "kompute"
    }
-
+   
    links
    {
-      "Walnut",
-      "fmt",
-      "kompute",
-      "kp_logger",
+      "Walnut"
    }
 
 
@@ -50,13 +48,21 @@ project "RayTracer"
       defines { "WL_DEBUG" }
       runtime "Debug"
       symbols "On"
-      
+      libdirs
+      {
+         "%{LibraryDir.kompute_debug}",
+      }
+   
       filter "configurations:Release"
       defines { "WL_RELEASE" }
       runtime "Release"
       optimize "On"
       symbols "On"
-
+      libdirs
+      {
+         "%{LibraryDir.kompute_release}",
+      }
+   
    filter "configurations:Dist"
       kind "WindowedApp"
       defines { "WL_DIST" }

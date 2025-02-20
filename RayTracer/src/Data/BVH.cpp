@@ -30,6 +30,10 @@ BVH::BVH(const Scene& scene)
 		triOpt.normal1 = tri.Normals[1];
 		triOpt.normal2 = tri.Normals[2];
 
+		triOpt.uv0 = tri.TCoords[0];
+		triOpt.uv1 = tri.TCoords[1];
+		triOpt.uv2 = tri.TCoords[2];
+
 		triOpt.materialIndex = tri.MaterialIndex;
 
 		m_trianglesOptimized.push_back(triOpt);

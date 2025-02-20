@@ -17,6 +17,11 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "Utils/tiny_obj_loader.h"
 
+#include "stb_image.h"
+
+#include <filesystem>
+#define fs std::filesystem
+
 template <typename T, typename Total, size_t N>
 class Moving_Average
 {
@@ -56,19 +61,25 @@ public:
 		m_camera(70.0f, 0.05f, 100.0f)
 	{	
 		// Load OBJ
+		float objScale = 0.01f;
+
+		//fs::path objPath("../Assets/sponza-scene/sponza-mats.obj");
+		fs::path objPath("../Assets/sponza/sponza.obj");
+
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
 		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
 
-		if (Reader.ParseFromFile("../Assets/sponza-scene/sponza-mats.obj", config)) {
-		//if (Reader.ParseFromFile("../Assets/sponza-scene/sponza.obj", config)) {
-		//if (Reader.ParseFromFile("../Assets/cornell-box/CornellBox-Water.obj", config)) {
+		if (Reader.ParseFromFile(objPath.string(), config)) 
+		{
+			// Add default material
+			m_scene.materials.emplace_back(Material());
+
 			auto& attrib = Reader.GetAttrib();
 			auto& shapes = Reader.GetShapes();
 			auto& materials = Reader.GetMaterials();
-
 
 			for each (const auto & _mat in materials)
 			{
@@ -83,6 +94,27 @@ public:
 				if (_mat.name == "water")
 					mat.Transparency = 1.0f;
 				mat.Name = _mat.name;
+
+
+
+				if (!_mat.diffuse_texname.empty()) {
+					std::string dp = fs::absolute(objPath.parent_path().string() + "/" + _mat.diffuse_texname).string();
+
+					int w, h, n;
+					unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 3);
+
+					if (data) {
+						mat.TexDiffuse.width = w;
+						mat.TexDiffuse.height = h;
+						for (int i = 0; i < w * h; i++) {
+							float r = (static_cast<float>(data[i * 3]) / 255.0f);
+							float g = (static_cast<float>(data[i * 3 + 1]) / 255.0f);
+							float b = (static_cast<float>(data[i * 3 + 2]) / 255.0f);
+							mat.TexDiffuse.data.emplace_back(r, g, b, 1.0f);
+						}
+					}
+					free(data);
+				}
 			}
 
 
@@ -105,7 +137,7 @@ public:
 						tinyobj::real_t vy = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
 						tinyobj::real_t vz = attrib.vertices[3 * size_t(idx.vertex_index) + 2];
 
-						glm::vec3 vertexPosition = glm::vec3(vx, vy, vz);
+						glm::vec3 vertexPosition = glm::vec3(vx, vy, vz) * objScale;
 						tri.Vertices.push_back(vertexPosition);
 						avg_centroid += vertexPosition;
 
@@ -121,11 +153,14 @@ public:
 						}
 						tri.Normals.push_back(normal);
 
+						glm::vec2 tcoords(0);
 						// Check if `texcoord_index` is zero or positive. negative = no texcoord data
 						if (idx.texcoord_index >= 0) {
 							tinyobj::real_t tx = attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
 							tinyobj::real_t ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+							tcoords = glm::vec2(tx, ty);
 						}
+						tri.TCoords.push_back(tcoords);
 
 						// Optional: vertex colors
 						// tinyobj::real_t red   = attrib.colors[3*size_t(idx.vertex_index)+0];
@@ -135,7 +170,7 @@ public:
 
 					tri.Center = avg_centroid / 3.0f;
 
-					tri.MaterialIndex = std::max(MatID, 0);
+					tri.MaterialIndex = std::max(MatID + 1, 0);
 					m_scene.triangles.push_back(tri);
 
 					index_offset += 3;
@@ -174,6 +209,10 @@ public:
 		}		
 	}
 
+	~RaytracerLayer() {
+		ImGui::SaveIniSettingsToDisk("imgui.ini");
+	}
+
 	virtual void OnUpdate(float ts) override
 	{
 		if (m_camera.OnUpdate(ts)) {
@@ -185,7 +224,6 @@ public:
 	virtual void OnUIRender() override
 	{
 		Renderer::Settings oldSettings = m_renderer.GetSettings();
-
 		// Settings
 		ImGui::Begin("Settings");
 		ImGui::Text("Last render: %.3fms | %i", m_lastRenderTimes(), m_renderer.GetFrameIndex());
@@ -301,7 +339,7 @@ private:
 	uint32_t m_viewportWidth = 0, m_viewportHeight = 0;
 
 	// Gui vars
-	Moving_Average<float, float, 10> m_lastRenderTimes;
+	Moving_Average<float, float, 1> m_lastRenderTimes;
 };
 
 
