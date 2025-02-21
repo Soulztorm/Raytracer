@@ -105,11 +105,11 @@ public:
 		bool Render = true;
 		bool Accumulate = true;
 		bool UseACE_Color = true;
-		uint32_t Bounces = 8;
+		uint32_t Bounces = 6;
 
 		uint32_t RenderMode = 0;
 
-		float Exposure = 1.0f;
+		float Exposure = 6.0f;
 
 		float DoF_Strength = 0.005f;
 		float DoF_Distance = 20.0f;

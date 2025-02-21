@@ -118,7 +118,7 @@ glm::vec3 Renderer::PerPixel(uint32_t x, uint32_t y) {
 			}
 
 			// What material did we hit?
-			Material mat = m_activeScene->materials[hit.materialIndex];
+			const Material& mat = m_activeScene->materials[hit.materialIndex];
 
 
 

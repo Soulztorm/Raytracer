@@ -21,6 +21,7 @@ struct PushConsts
     float skyX;
     float skyY;
     bool useACE;
+    bool accumulate;
 };
 
 class RendererGPU : public Renderer {

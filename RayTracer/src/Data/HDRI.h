@@ -17,12 +17,14 @@ public:
 	const int GetHeight() const { return m_height; }
 	const glm::vec4* GetData() const { return m_data; };
 
+	const glm::vec2 GetBrightestUV() const { return m_brightestUV; };
 
 	const bool IsValid() const { return m_isvalid; }
 
 protected:
 	glm::vec4* m_data = NULL;
 	int m_width, m_height;
+	glm::vec2 m_brightestUV;
 
 	bool m_isvalid = false;
 };

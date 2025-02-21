@@ -12,6 +12,8 @@
 #include "BVH.h"
 #include "HDRI.h"
 
+#include "imgui_internal.h"
+
 #include <glm/gtc/type_ptr.hpp>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -60,18 +62,22 @@ public:
 	RaytracerLayer() :
 		m_camera(70.0f, 0.05f, 100.0f)
 	{	
+
+		LoadSettings();
+		
 		// Load OBJ
 		float objScale = 0.01f;
 
-		//fs::path objPath("../Assets/sponza-scene/sponza-mats.obj");
 		fs::path objPath("../Assets/sponza/sponza.obj");
 		//fs::path objPath("../Assets/fireplace_room/fireplace_room.obj");
+		//fs::path objPath("../Assets/cornell-box/CornellBox-Water2.obj");
 
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
 		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
 
 		if (Reader.ParseFromFile(objPath.string(), config)) 
 		{
@@ -89,11 +95,11 @@ public:
 				mat.Albedo = 
 					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]);
 					//glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
-				mat.Emission = 2.0f * glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
-				mat.Roughness = (1024.0f - _mat.shininess) / 1024.0f;
+				mat.Emission = glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
+				mat.Roughness = (1000.0f - _mat.shininess) / 1000.0f;
 				mat.IOR = _mat.ior;
 
-				if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0)
+				if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0 && _mat.illum == 3)
 					mat.Transparency = 1.0f - _mat.transmittance[0];
 
 				mat.Name = _mat.name;
@@ -104,16 +110,17 @@ public:
 					std::string dp = fs::absolute(objPath.parent_path().string() + "/" + _mat.diffuse_texname).string();
 
 					int w, h, n;
-					unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 3);
+					unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 4);
 
 					if (data) {
 						mat.TexDiffuse.width = w;
 						mat.TexDiffuse.height = h;
 						for (int i = 0; i < w * h; i++) {
-							float r = (static_cast<float>(data[i * 3]) / 255.0f);
-							float g = (static_cast<float>(data[i * 3 + 1]) / 255.0f);
-							float b = (static_cast<float>(data[i * 3 + 2]) / 255.0f);
-							mat.TexDiffuse.data.emplace_back(r, g, b, 1.0f);
+							float r = (static_cast<float>(data[i * 4]) / 255.0f);
+							float g = (static_cast<float>(data[i * 4 + 1]) / 255.0f);
+							float b = (static_cast<float>(data[i * 4 + 2]) / 255.0f);
+							float a = (static_cast<float>(data[i * 4 + 3]) / 255.0f);
+							mat.TexDiffuse.data.emplace_back(r, g, b, a);
 						}
 					}
 					free(data);
@@ -279,7 +286,6 @@ public:
 
 		ImGui::End();
 
-		
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("Viewport");
 
@@ -303,7 +309,7 @@ public:
 
 		auto img = m_renderer.GetImage();
 		if (img) {
-			ImGui::Image(img->GetDescriptorSet(), { (float)img->GetWidth(), (float)img->GetHeight() }, ImVec2(0, 1), ImVec2(1, 0));
+			ImGui::Image((ImTextureID)img->GetDescriptorSet(), { (float)img->GetWidth(), (float)img->GetHeight() }, ImVec2(0, 1), ImVec2(1, 0));
 		}
 
 		ImGui::End();
@@ -330,12 +336,80 @@ public:
 		m_lastRenderTimes(timer.ElapsedMillis());	
 	}
 
+	void LoadSettings() {
+		ImGuiSettingsHandler ini_handler;
+		ini_handler.TypeName = "UserData";
+		ini_handler.TypeHash = ImHashStr("UserData");
+		ini_handler.ReadOpenFn = UserData_ReadOpen;
+		ini_handler.ReadLineFn = UserData_ReadLine;
+		ini_handler.WriteAllFn = UserData_WriteAll;
+		ini_handler.UserData = &m_camera;
+		ImGui::AddSettingsHandler(&ini_handler);
+
+		ImGui::LoadIniSettingsFromDisk("imgui.ini");
+	}
+
+	static void* UserData_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* name)
+	{
+		return (void*)"Camera";
+	}
+
+	static void UserData_ReadLine(ImGuiContext*, ImGuiSettingsHandler* handler, void* entry, const char* line)
+	{
+		Camera* cam = (Camera*)handler->UserData;
+		glm::vec3 position = cam->GetPosition();
+		glm::vec3 direction = cam->GetDirection();
+		
+		std::string lineStr(line);
+
+		if (lineStr._Starts_with("pos=")) {
+			float posArr[3];
+			std::string posCoordStr = lineStr.substr(lineStr.find_last_of('=')+1);
+
+			std::string number;
+			size_t i = 0;
+			std::stringstream ss(posCoordStr);
+			// Parse CSV values into the array
+			while (std::getline(ss, number, ',') && i < 3) {
+				posArr[i++] = std::stof(number);
+			}
+			position = glm::vec3(posArr[0], posArr[1], posArr[2]);
+		}
+
+		else if (lineStr._Starts_with("dir=")) {
+			float dirArr[3];
+			std::string dirCoordStr = lineStr.substr(lineStr.find_last_of('=') + 1);
+
+			std::string number;
+			size_t i = 0;
+			std::stringstream ss(dirCoordStr);
+			// Parse CSV values into the array
+			while (std::getline(ss, number, ',') && i < 3) {
+				dirArr[i++] = std::stof(number);
+			}
+			direction = glm::vec3(dirArr[0], dirArr[1], dirArr[2]);
+		}
+
+		cam->SetPositionDirection(position, direction);
+	}
+
+	static void UserData_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)
+	{
+		Camera* cam = (Camera*)handler->UserData;
+		const glm::vec3& pos = cam->GetPosition();
+		const glm::vec3& dir = cam->GetDirection();
+
+		buf->appendf("[%s][%s]\n", "UserData", "Camera");
+		buf->appendf("pos=%f,%f,%f\n", pos.x, pos.y, pos.z);
+		buf->appendf("dir=%f,%f,%f\n", dir.x, dir.y, dir.z);
+		buf->append("\n");
+	}
+
 
 private:
 	Camera m_camera;
 	Scene m_scene;
 	RendererGPU m_renderer;
-	// m_vulkanRenderer;
 
 	std::shared_ptr<BVH> m_bvh;
 

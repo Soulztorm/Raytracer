@@ -98,6 +98,9 @@ void RendererGPU::FillBuffers() {
 		}
 	}
 
+	if (textureDiffuseArray.empty())
+		textureDiffuseArray.push_back(-1.0);
+
 	m_buf_materials = m_kp_manager.tensor(materialArray);
 	m_buf_textures = m_kp_manager.tensor(textureDiffuseArray);
 	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureIndexArray);
@@ -219,6 +222,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].dof_strength = m_settings.DoF_Strength;
 	m_kp_pushConsts[0].skyX = m_settings.SkyX;
 	m_kp_pushConsts[0].skyY = m_settings.SkyY;
+	m_kp_pushConsts[0].accumulate = m_settings.Accumulate;
 
 	// Run the shader
 	m_kp_manager.sequence()
