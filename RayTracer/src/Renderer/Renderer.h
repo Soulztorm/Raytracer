@@ -109,9 +109,9 @@ public:
 
 		uint32_t RenderMode = 0;
 
-		float Exposure = 6.0f;
+		float Exposure = 1.2f;
 
-		float DoF_Strength = 0.005f;
+		float DoF_Strength = 0.025f;
 		float DoF_Distance = 20.0f;
 
 		float SkyX = 0.0f;

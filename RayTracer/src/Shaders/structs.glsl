@@ -2,7 +2,6 @@ struct Ray
 {
 	vec3 Origin;
 	vec3 Direction;
-	vec3 DirectionInverse;
 };
 
 struct BoundingBox

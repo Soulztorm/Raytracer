@@ -7,7 +7,9 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-#define MAX_LUMINANCE 20.0f
+#include <iostream>
+
+#define MAX_LUMINANCE 10.0f
 
 bool HDRI::LoadFromFile(const char* filename) {
 	const char* err = NULL;
@@ -25,6 +27,10 @@ bool HDRI::LoadFromFile(const char* filename) {
 		return false;
 	}
 
+	float max_lum = 0.0;
+	float logSum = 0.0f;
+	float epsilon = 1e-6f;
+
 	// File is valid, fill the glm data vector with rgba
 	m_data = (glm::vec4*)malloc(m_width * m_height * sizeof(glm::vec4));
 	for (int y = 0; y < m_height; y++) {
@@ -35,6 +41,14 @@ bool HDRI::LoadFromFile(const char* filename) {
 
 			// Clamp luminance to reduce fireflies
 			float lum = glm::dot(rgb, glm::vec3(0.212671f, 0.715160f, 0.072169f));
+
+			logSum += std::log(lum + epsilon);
+
+			if (lum > max_lum) {
+				max_lum = lum;
+				m_brightestUV = glm::vec2(x / (float)m_width, y / (float)m_height);
+			}
+			max_lum = std::max(max_lum, lum);
 			if (lum > MAX_LUMINANCE)
 			{
 				rgba *= MAX_LUMINANCE / lum;
@@ -42,6 +56,12 @@ bool HDRI::LoadFromFile(const char* filename) {
 			m_data[pixelIndex] = rgba;
 		}
 	}
+
+	logSum = std::exp(logSum / (float)(m_width * m_height));
+
+	std::cout << "Max HDRI lum        : " << max_lum << "\n\n";
+	std::cout << "Log sum HDRI        : " << logSum << "\n\n";
+	std::cout << "Bright spot UV HDRI : " << m_brightestUV.x << ", " << m_brightestUV.y << "\n\n";
 
 	// Free data and flag this HDRI as valid
 	free(data);

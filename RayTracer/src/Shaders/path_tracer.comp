@@ -46,8 +46,9 @@ layout(push_constant) readonly uniform PushConstants {
     float dofStrength;
     float skyX;
     float skyY;
-    bool useACE;
-    bool accumulate;
+    uint useACE;
+    uint accumulate;
+    vec2 hdriSunUV;
 } camdata;
 
 #include "structs.glsl"
@@ -55,6 +56,9 @@ layout(push_constant) readonly uniform PushConstants {
 #include "intersections.glsl"
 
 
+
+shared vec3 sunDir;
+shared vec3 sunDirInverse;
 
 // GGX Importance Sampling
 vec3 sampleGGX(vec3 N, float roughness, inout uint randomSeed) {
@@ -84,6 +88,20 @@ vec2 rotate(vec2 v, float a) {
 	return m * v;
 }
 
+
+
+vec3 hdrPixelToWorldDirection(in vec2 uv) {
+    float longitude = (uv.x - 0.5) * 2.0 * PI; // Map [0,1] → [-π, π]
+    float latitude  = (0.5 - uv.y) * PI;       // Map [0,1] → [π/2, -π/2]
+
+    vec3 worldDir;
+    worldDir.x = cos(latitude) * cos(longitude);
+    worldDir.y = sin(latitude);
+    worldDir.z = cos(latitude) * sin(longitude);
+
+    return normalize(worldDir);
+}
+
 vec4 SampleHDRIFromDirection(in vec3 worldDir)
 {
     // Apply longitude rotation (horizontal)
@@ -108,14 +126,10 @@ vec4 SampleHDRIFromDirection(in vec3 worldDir)
 	float u = (longitude + PI) * PI1_2; // Map from [-pi, pi] to [0,1]
 	float v = (0.5 * PI - latitude) * PI1;    // Map from [-pi/2, pi/2] to [0,1], flip v
 
-    u = fract(u + camdata.skyX);
-    v = fract(v);
-
 	// Convert to pixel coordinates
     ivec2 pixelCoords = ivec2(u * 4096, v * 2048);
 	return imageLoad(hdri_image, pixelCoords);
 }
-
 
 
 
@@ -173,18 +187,46 @@ float FresnelReflectAmount (float n1, float n2, vec3 normal, vec3 incident)
         return ret;
 }
 
-vec3 hdrPixelToWorldDirection(float u, float v) {
-    float longitude = (u - 0.5) * 2.0 * PI; // Map [0,1] → [-π, π]
-    float latitude  = (0.5 - v) * PI;       // Map [0,1] → [π/2, -π/2]
 
-    vec3 worldDir;
-    worldDir.x = cos(latitude) * cos(longitude);
-    worldDir.y = sin(latitude);
-    worldDir.z = cos(latitude) * sin(longitude);
+vec3 sampleSunDisk(float sunAngularRadius, inout uint randomSeed) {
+    vec2 diskSample = RandomInCircle(randomSeed) * sunAngularRadius;
+    
+    // Create tangent space
+    vec3 up = abs(sunDir.y) < 0.999 ? vec3(0,1,0) : vec3(1,0,0);
+    vec3 right = normalize(cross(up, sunDir));
+    vec3 forward = cross(sunDir, right);
 
-    return normalize(worldDir);
+    // Rotate sun direction by sampled offset
+    return normalize(sunDir + right * diskSample.x + forward * diskSample.y);
 }
 
+
+vec3 sampleDirectLight(HitInfo hitInfo, float sunAngularRadius, inout uint randomSeed) {
+    vec3 lightDir = sampleSunDisk(sunAngularRadius, randomSeed);
+
+    Ray sunTestRay;
+    sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON;
+    sunTestRay.Direction = lightDir;
+
+    HitInfo hitSun = IntersectRay(sunTestRay);
+    bool sunVisible = hitSun.materialIndex < 0;
+
+    // Check if light is visible (shadow ray)
+    if (sunVisible) {
+        // Compute BSDF probability
+        float p_bsdf = pdfBSDF(lightDir, hitInfo.normal);
+        vec3 sunLight = p_bsdf * SampleHDRIFromDirection(lightDir).rgb;
+        return sunLight;
+    } 
+
+    return vec3(0.0); // No contribution if occluded
+}
+
+
+// ================================================================================================================
+// ================================================================================================================
+// ================================================================================================================
+// ================================================================================================================
 
 void main() {
     uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
@@ -192,11 +234,31 @@ void main() {
     vec2 uvCentered = uv * 2.f - 1.f;
 
     vec3 finalColor = vec3(0.0);
+    
+    
+    vec3 directLight = vec3(0.0);
+    vec3 indirectLight = vec3(0.0);
+    
     vec3 contribution = vec3(1.0);
 
 
-    vec3 sunDir = hdrPixelToWorldDirection(2457.0 / 4096.0, 431.0 / 2048.0);
-    vec3 sunDirInverse = vec3(1.0 / sunDir.x, 1.0 / sunDir.y, 1.0 / sunDir.z);
+    sunDir = hdrPixelToWorldDirection(camdata.hdriSunUV);
+
+    // Apply longitude rotation (horizontal)
+    sunDir.xz = rotate(sunDir.xz, -camdata.skyX * PI);
+
+    //Apply latitude rotation correctly (vertical)
+    float cosLat = cos(-camdata.skyY * 2.0 * PI);
+    float sinLat = sin(-camdata.skyY * 2.0 * PI);
+
+    vec3 rotatedDir;
+    rotatedDir.x = sunDir.x;
+    rotatedDir.y = sunDir.y * cosLat - sunDir.z * sinLat;
+    rotatedDir.z = sunDir.y * sinLat + sunDir.z * cosLat;
+    sunDir = normalize(rotatedDir);
+    sunDirInverse = 1.0 / sunDir;
+
+
 
     Ray ray;
 
@@ -215,8 +277,6 @@ void main() {
 
     if (camdata.rendermode == 0){
         for (int i = 0; i < camdata.bounces; i++){
-            ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
-
             // Do the actual ray test in the scene
             HitInfo hitInfo = IntersectRay(ray);
 
@@ -266,57 +326,29 @@ void main() {
                 }
             }
             else {
-                // if (RandomValue(randomSeed) > mat.Roughness * mat.Roughness){
-                //     vec3 reflectedVector = sampleGGXReflection(ray.Direction, hitInfo.normal,  mat.Roughness, randomSeed);
-                //     ray.Direction = reflectedVector;
-                // }
-                // else{
-                //     vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-                //     ray.Direction = diffuseRayDir;
-                // }
-
-
-                // // Test against sun
-                // Ray sunTestRay;
-                // sunTestRay.Origin = ray.Origin;
-                // sunTestRay.Direction = sunDir;
-                // sunTestRay.DirectionInverse = sunDirInverse;
-
-                // HitInfo hitSun = IntersectRay(sunTestRay);
-
-
-                // // No hit
-                // if (hitSun.materialIndex < 0){
-                //     finalColor = vec3(1);
-                // }
-                // else
-                //     finalColor = vec3(0);
-
-                // break;
-
-
+                // Test against sun
+                if (RandomValue(randomSeed) < 0.5){
+                    float sunAngularRadius = 0.00872665; // 0.5 degrees in radians (Real world sun size)
+                    directLight = sampleDirectLight(hitInfo, sunAngularRadius, randomSeed);
+                }
 
                 vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
                 vec3 reflectedVector = reflect(ray.Direction, hitInfo.normal);
-                reflectedVector = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
 
-                ray.Direction = reflectedVector;
+                vec3 newDirection = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
+
+                ray.Direction = newDirection;
             }
 
 
-
-
-
-
-
-            finalColor += mat.Emission * contribution;
+ 
             contribution *= albedoColor.rgb;
-
+            finalColor += directLight * contribution;
+            finalColor += mat.Emission;
 
             // Russian Roulette
             // As the throughput gets smaller, the ray is more likely to get terminated early.
-            // Survivors have their value boosted to make up for fewer samples being in the average.
-            
+            // Survivors have their value boosted to make up for fewer samples being in the average.     
             float p = max(contribution.r, max(contribution.g, contribution.b));
             if (RandomValue(randomSeed) > p)
                 break;
@@ -326,7 +358,6 @@ void main() {
         }
     }
     else{
-        ray.DirectionInverse = vec3(1.0 / ray.Direction.x, 1.0 / ray.Direction.y, 1.0 / ray.Direction.z);
         HitInfo hitInfo = IntersectRay(ray);
 
         // No hit
@@ -334,24 +365,9 @@ void main() {
             finalColor = SampleHDRIFromDirection(ray.Direction).rgb;
         }
         else{
-            //finalColor = (hitInfo.normal + normalize(vec3(1))) * 0.5;
-            //finalColor = vec3(hitInfo.uv, 0);
-
-            int texIndex = textures_diffuseIdx[hitInfo.materialIndex*3];
-
-            if (texIndex >= 0){
-                int texWidth = textures_diffuseIdx[hitInfo.materialIndex*3 + 1];
-                int texHeight = textures_diffuseIdx[hitInfo.materialIndex*3 + 2];
-
-                int px_x = int(hitInfo.uv.x * (texWidth - 1));
-                int px_y = int((1.0 - hitInfo.uv.y) * (texHeight - 1));
-
-                int px_idx = texIndex + (px_y * texWidth + px_x);
-
-                finalColor = textures_diffuse[px_idx].rgb;
-            }
-            else
-                finalColor = vec3(1,0,1);
+            // Get the color for this material, either diffuse texture lookup or material albedo
+            Material mat = GetMaterial(hitInfo.materialIndex);
+            finalColor = GetAlbedoColor(mat, hitInfo).rgb;
         }
     }
     
@@ -365,11 +381,13 @@ void main() {
     if (camdata.frameindex % 20 == 1)
     {
         // Color corrected image
-        if (camdata.useACE)
+        if (camdata.useACE == 1){
             finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
-        else
+        }
+        else{
             finalColor = camdata.exposure * newColor.rgb;
+        }
 
-            img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
+        img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
     }
 }

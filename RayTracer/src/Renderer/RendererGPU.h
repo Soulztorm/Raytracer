@@ -8,7 +8,6 @@
 
 struct PushConsts
 {
-    // These have to be 16 byte aligned, that's why vec4 instead of vec3
     glm::vec4 camPos;
     glm::vec4 camRight;
     glm::vec4 camUp;
@@ -20,8 +19,9 @@ struct PushConsts
     float dof_strength;
     float skyX;
     float skyY;
-    bool useACE;
-    bool accumulate;
+    uint32_t useACE;
+    uint32_t accumulate;
+    glm::vec2 hdri_sun_uv;
 };
 
 class RendererGPU : public Renderer {

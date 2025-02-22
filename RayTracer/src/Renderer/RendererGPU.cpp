@@ -223,6 +223,7 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].skyX = m_settings.SkyX;
 	m_kp_pushConsts[0].skyY = m_settings.SkyY;
 	m_kp_pushConsts[0].accumulate = m_settings.Accumulate;
+	m_kp_pushConsts[0].hdri_sun_uv = m_activeScene->hdri.GetBrightestUV();
 
 	// Run the shader
 	m_kp_manager.sequence()

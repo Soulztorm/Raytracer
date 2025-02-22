@@ -1,7 +1,8 @@
 float RayBBIntersection(in BoundingBox bbox, in Ray ray)
 {
-	vec3 l1 = (bbox.center - ray.Origin) * ray.DirectionInverse;
-	vec3 l2 = bbox.extends * ray.DirectionInverse;
+    vec3 rayDirInv = 1.0 / ray.Direction;
+	vec3 l1 = (bbox.center - ray.Origin) * rayDirInv;
+	vec3 l2 = bbox.extends * rayDirInv;
 
 	vec3 tMin = l1 - l2;
 	vec3 tMax = l1 + l2;

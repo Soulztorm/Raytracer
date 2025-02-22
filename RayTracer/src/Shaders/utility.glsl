@@ -111,6 +111,16 @@ vec4 GetAlbedoColor(in Material mat, in HitInfo hitInfo){
     }
     return albedoColor;
 }
-           
 
 
+float pdfBSDF(vec3 sampledDir, vec3 normal) {
+    float cosTheta = max(dot(normal, sampledDir), 0.0);
+    return cosTheta * PI1; // Lambertian PDF
+}      
+
+float pdfPointLight(vec3 lightPos, vec3 hitPoint) {
+    vec3 lightDir = normalize(lightPos - hitPoint);
+    float dist2 = dot(lightPos - hitPoint, lightPos - hitPoint);
+    
+    return 1.0 / (4.0 * PI * dist2); // Uniform sphere distribution
+}
