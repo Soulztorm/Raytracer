@@ -66,10 +66,14 @@ public:
 		LoadSettings();
 		
 		// Load OBJ
-		float objScale = 0.01f;
-
+#if 1
 		fs::path objPath("../Assets/sponza/sponza.obj");
-		//fs::path objPath("../Assets/fireplace_room/fireplace_room.obj");
+		float objScale = 0.01f;
+#else
+
+		fs::path objPath("../Assets/fireplace_room/fireplace_room.obj");
+		float objScale = 1.f;
+#endif
 		//fs::path objPath("../Assets/cornell-box/CornellBox-Water2.obj");
 
 		tinyobj::ObjReader Reader;
@@ -343,7 +347,7 @@ public:
 		ini_handler.ReadOpenFn = UserData_ReadOpen;
 		ini_handler.ReadLineFn = UserData_ReadLine;
 		ini_handler.WriteAllFn = UserData_WriteAll;
-		ini_handler.UserData = &m_camera;
+		ini_handler.UserData = this;
 		ImGui::AddSettingsHandler(&ini_handler);
 
 		ImGui::LoadIniSettingsFromDisk("imgui.ini");
@@ -356,9 +360,10 @@ public:
 
 	static void UserData_ReadLine(ImGuiContext*, ImGuiSettingsHandler* handler, void* entry, const char* line)
 	{
-		Camera* cam = (Camera*)handler->UserData;
-		glm::vec3 position = cam->GetPosition();
-		glm::vec3 direction = cam->GetDirection();
+		RaytracerLayer* rt = (RaytracerLayer*)handler->UserData;
+		
+		glm::vec3 position = rt->m_camera.GetPosition();
+		glm::vec3 direction = rt->m_camera.GetDirection();
 		
 		std::string lineStr(line);
 
@@ -389,20 +394,41 @@ public:
 			}
 			direction = glm::vec3(dirArr[0], dirArr[1], dirArr[2]);
 		}
+		else if (lineStr._Starts_with("skyX="))
+			rt->m_renderer.GetSettings().SkyX = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
+		else if (lineStr._Starts_with("skyY="))
+			rt->m_renderer.GetSettings().SkyY = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
+		else if (lineStr._Starts_with("exposure="))
+			rt->m_renderer.GetSettings().Exposure = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
+		else if (lineStr._Starts_with("bounces="))
+			rt->m_renderer.GetSettings().Bounces = std::stoi(lineStr.substr(lineStr.find_last_of('=') + 1));
+		else if (lineStr._Starts_with("dofstrength="))
+			rt->m_renderer.GetSettings().DoF_Strength = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
+		else if (lineStr._Starts_with("dofdistance="))
+			rt->m_renderer.GetSettings().DoF_Distance = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
 
-		cam->SetPositionDirection(position, direction);
+		rt->m_camera.SetPositionDirection(position, direction);
 	}
 
 	static void UserData_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)
 	{
-		Camera* cam = (Camera*)handler->UserData;
-		const glm::vec3& pos = cam->GetPosition();
-		const glm::vec3& dir = cam->GetDirection();
+		RaytracerLayer* rt = (RaytracerLayer*)handler->UserData;
+
+		const glm::vec3& pos = rt->m_camera.GetPosition();
+		const glm::vec3& dir = rt->m_camera.GetDirection();
 
 		buf->appendf("[%s][%s]\n", "UserData", "Camera");
 		buf->appendf("pos=%f,%f,%f\n", pos.x, pos.y, pos.z);
 		buf->appendf("dir=%f,%f,%f\n", dir.x, dir.y, dir.z);
 		buf->append("\n");
+		buf->appendf("[%s][%s]\n", "UserData", "Settings");
+		buf->appendf("skyX=%f\n", rt->m_renderer.GetSettings().SkyX);
+		buf->appendf("skyY=%f\n", rt->m_renderer.GetSettings().SkyY);
+		buf->appendf("exposure=%f\n", rt->m_renderer.GetSettings().Exposure);
+		buf->appendf("bounces=%i\n", rt->m_renderer.GetSettings().Bounces);
+		buf->appendf("dofstrength=%f\n", rt->m_renderer.GetSettings().DoF_Strength);
+		buf->appendf("dofdistance=%f\n", rt->m_renderer.GetSettings().DoF_Distance);
+
 	}
 
 
