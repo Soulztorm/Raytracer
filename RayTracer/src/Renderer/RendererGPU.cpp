@@ -154,7 +154,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 		m_buf_imgOut = m_kp_manager.tensor(std::vector<float>(width * height * 4));
 		m_buf_imgAccu = m_kp_manager.tensor(std::vector<float>(width * height * 4), kp::Memory::MemoryTypes::eStorage);
 
-		m_kp_consts = { float(width), float(height) };
+		m_kp_consts = { float(width), float(height), float(m_activeScene->hdri.GetWidth()), float(m_activeScene->hdri.GetHeight()) };
 
 		m_kp_buffers = {
 			m_buf_raydirs,

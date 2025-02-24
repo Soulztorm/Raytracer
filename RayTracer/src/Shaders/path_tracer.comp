@@ -33,6 +33,8 @@ layout(set = 0, binding = 11) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 layout(constant_id = 0) const float image_width = 0;
 layout(constant_id = 1) const float image_height = 0;
+layout(constant_id = 2) const float hdri_width = 0;
+layout(constant_id = 3) const float hdri_height = 0;
 
 // Kompute supports push constants updated on dispatch
 layout(push_constant) readonly uniform PushConstants {
@@ -56,9 +58,6 @@ layout(push_constant) readonly uniform PushConstants {
 #include "intersections.glsl"
 
 
-
-shared vec3 sunDir;
-shared vec3 sunDirInverse;
 
 // GGX Importance Sampling
 vec3 sampleGGX(vec3 N, float roughness, inout uint randomSeed) {
@@ -89,11 +88,11 @@ vec2 rotate(vec2 v, float a) {
 }
 
 int binarySearchCDF(float r) {
-    int low = 0;
-    int high = 4096 * 2048;
-    int mid;
+    r *= 0.99999;
 
-    r = clamp(r, 0, 1.0f - FLT_EPSILON);
+    int low = 0;
+    int high = int(hdri_width) * int(hdri_height);
+    int mid;
 
     // Loop until low and high converge.
     while (low < high) {
@@ -106,56 +105,43 @@ int binarySearchCDF(float r) {
     return low;
 }
 
-int linearSearchCDF(float r) {
-    for (int i=0; i < 4096 * 2048; i++){
-        if (hdri_cdf[i] >= r)
-            return i;
-    }
-    return 0;
-}
-
-
 
 vec3 hdrPixelToWorldDirection(in vec2 uv) {
     float longitude = (uv.x - 0.5) * 2.0 * PI; // Map [0,1] → [-π, π]
     float latitude  = (0.5 - uv.y) * PI;       // Map [0,1] → [π/2, -π/2]
 
-    vec3 worldDir;
-    worldDir.x = cos(latitude) * cos(longitude);
-    worldDir.y = sin(latitude);
-    worldDir.z = cos(latitude) * sin(longitude);
-
-    return normalize(worldDir);
+    return normalize(vec3(
+        cos(latitude) * cos(longitude),
+        sin(latitude),
+        cos(latitude) * sin(longitude)));
 }
+
+shared float skyDir_cl;
+shared float skyDir_sl;
 
 vec3 RotateSkyWorldDir(in vec3 worldDir){
     // Apply longitude rotation (horizontal)
     worldDir.xz = rotate(worldDir.xz, camdata.skyX * 2.0 * PI);
 
-    // Apply latitude rotation correctly (vertical)
-    float cosLat = cos(camdata.skyY * 2.0 * PI);
-    float sinLat = sin(camdata.skyY * 2.0 * PI);
-
     vec3 rotatedDir;
     rotatedDir.x = worldDir.x;
-    rotatedDir.y = worldDir.y * cosLat - worldDir.z * sinLat;
-    rotatedDir.z = worldDir.y * sinLat + worldDir.z * cosLat;
+    rotatedDir.y = worldDir.y * skyDir_cl - worldDir.z * skyDir_sl;
+    rotatedDir.z = worldDir.y * skyDir_sl + worldDir.z * skyDir_cl;
 
     return normalize(rotatedDir);
 }
+
+shared float skyDirInv_cl;
+shared float skyDirInv_sl;
 
 vec3 RotateSkyWorldDirInv(in vec3 worldDir){
     // Apply longitude rotation (horizontal)
     worldDir.xz = rotate(worldDir.xz, -camdata.skyX * 2.0 * PI);
 
-    // Apply latitude rotation correctly (vertical)
-    float cosLat = cos(camdata.skyY * 2.0 * PI);
-    float sinLat = sin(camdata.skyY * 2.0 * PI);
-
     vec3 rotatedDir;
     rotatedDir.x = worldDir.x;
-    rotatedDir.y = worldDir.y * cosLat - worldDir.z * sinLat;
-    rotatedDir.z = worldDir.y * sinLat + worldDir.z * cosLat;
+    rotatedDir.y = worldDir.y * skyDirInv_cl - worldDir.z * skyDirInv_sl;
+    rotatedDir.z = worldDir.y * skyDirInv_sl + worldDir.z * skyDirInv_cl;
 
     return normalize(rotatedDir);
 }
@@ -173,7 +159,7 @@ vec4 SampleHDRIFromDirection(in vec3 worldDir)
 	float v = (0.5 * PI - latitude) * PI1;    // Map from [-pi/2, pi/2] to [0,1], flip v
 
 	// Convert to pixel coordinates
-    ivec2 pixelCoords = ivec2(u * 4096, v * 2048);
+    ivec2 pixelCoords = ivec2(u * int(hdri_width), v * int(hdri_height));
 	return imageLoad(hdri_image, pixelCoords);
 }
 
@@ -240,7 +226,7 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
     // Pick a random hdri direction, weighted by luminance. High intensity directions are chosen more often
     int cdfIndex = binarySearchCDF(RandomValue(randomSeed));
     // Convert from chosen pixel index in hdri to uv coordinates
-    vec2 hdriUV = fract(vec2((cdfIndex % 4096) / 4096.0, (cdfIndex / 4096) / 2048.0)); 
+    vec2 hdriUV = vec2((cdfIndex % int(hdri_width)) / hdri_width, (cdfIndex / int(hdri_width)) / hdri_height); 
     
 
     vec3 lightDir = RotateSkyWorldDirInv(hdrPixelToWorldDirection(hdriUV));
@@ -259,7 +245,7 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
 
         float intensity = max(dot(hitInfo.normal, lightDir), 0.0);
 
-        vec3 sunLight = SampleHDRIFromDirection(lightDir).rgb * intensity;
+        vec3 sunLight = SampleHDRIFromDirection(lightDir).rgb * intensity * (1.0 - probability);
         return sunLight;
     } 
 
@@ -277,29 +263,21 @@ void main() {
     vec2 uv = vec2((gl_GlobalInvocationID.x % uint(image_width)) / image_width, (gl_GlobalInvocationID.x / image_width) / image_height); 
     vec2 uvCentered = uv * 2.f - 1.f;
 
-    vec3 finalColor = vec3(0.0);
-    
-    
+
+    skyDir_cl = cos(camdata.skyY * 2.0 * PI);
+    skyDir_sl = sin(camdata.skyY * 2.0 * PI);
+
+    skyDirInv_cl = cos(-camdata.skyY * 2.0 * PI);
+    skyDirInv_sl = sin(-camdata.skyY * 2.0 * PI);
+
+
+
+    vec3 finalColor = vec3(0.0); 
+
     vec3 directLight = vec3(0.0);
     
     vec3 contribution = vec3(1.0);
     float pdfContribution = 1.0f;
-
-    //sunDir = hdrPixelToWorldDirection(camdata.hdriSunUV);
-
-    // Apply longitude rotation (horizontal)
-    sunDir.xz = rotate(sunDir.xz, -camdata.skyX * PI);
-
-    //Apply latitude rotation correctly (vertical)
-    float cosLat = cos(-camdata.skyY * 2.0 * PI);
-    float sinLat = sin(-camdata.skyY * 2.0 * PI);
-
-    vec3 rotatedDir;
-    rotatedDir.x = sunDir.x;
-    rotatedDir.y = sunDir.y * cosLat - sunDir.z * sinLat;
-    rotatedDir.z = sunDir.y * sinLat + sunDir.z * cosLat;
-    sunDir = normalize(rotatedDir);
-    sunDirInverse = 1.0 / sunDir;
 
 
 
@@ -345,26 +323,33 @@ void main() {
 
             // Direct light
             vec3 directLight = vec3(0);
-            if (RandomValue(randomSeed) < 0.2){
+            if (RandomValue(randomSeed) < 0.5f){
                 directLight = sampleDirectLight(hitInfo, randomSeed);          
             }
 
+            float alpha = mat.Roughness * mat.Roughness;
 
-            vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-            pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal);
+            // Reflection ray
+            if (RandomValue(randomSeed) > alpha){
+                vec3 reflectionDir = reflect(ray.Direction, hitInfo.normal);
+                pdfContribution = (1.0 - alpha) * PI1; // Probability of reflection, dependant on roughness
+                ray.Direction = reflectionDir;
+            }
+            // Diffusion ray
+            else{
+                vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
+                pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal); // Probability of this chosen direction of cosine weighted hemisphere
+                ray.Direction = diffuseRayDir;
+            }
+
 
             // New ray origin offset from last hit position along surface normal
             ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
-            ray.Direction = diffuseRayDir;
 
+
+    
             contribution *= albedoColor.rgb;
- 
-
-
-
-            //finalColor += mat.Emission * contribution;
             finalColor += (directLight + mat.Emission.rgb) * contribution;
-
             contribution /= pdfContribution;
 
 

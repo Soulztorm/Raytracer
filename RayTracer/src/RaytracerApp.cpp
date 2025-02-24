@@ -65,8 +65,8 @@ public:
 
 		LoadSettings();
 
-		//m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
-		m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
+		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/rogland_clear_night_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/qwantani_sunrise_4k.exr");
 
@@ -466,8 +466,8 @@ Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 {
 	Walnut::ApplicationSpecification spec;
 	spec.Name = "Raytracer go BRRRRRRR";
-	spec.Width = 1280;
-	spec.Height = 720;
+	spec.Width = 900;
+	spec.Height = 600;
 
 	Walnut::Application* app = new Walnut::Application(spec);
 	app->PushLayer<RaytracerLayer>();
