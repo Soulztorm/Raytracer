@@ -5,7 +5,7 @@ class HDRI
 {
 public:
 	HDRI() : m_isvalid(false), m_data(NULL), m_width(0), m_height(0) {};
-	~HDRI() { free(m_data); }
+	~HDRI() { free(m_data); free(m_cdf); }
 
 	bool LoadFromFile(const char* filename);
 
@@ -16,15 +16,15 @@ public:
 	const int GetWidth() const { return m_width; }
 	const int GetHeight() const { return m_height; }
 	const glm::vec4* GetData() const { return m_data; };
+	const float* GetCDF() const { return m_cdf; };
 
-	const glm::vec2 GetBrightestUV() const { return m_brightestUV; };
 
 	const bool IsValid() const { return m_isvalid; }
 
 protected:
-	glm::vec4* m_data = NULL;
 	int m_width, m_height;
-	glm::vec2 m_brightestUV;
+	glm::vec4* m_data = NULL;
+	float* m_cdf = NULL;
 
 	bool m_isvalid = false;
 };

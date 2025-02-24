@@ -64,8 +64,13 @@ public:
 	{	
 
 		LoadSettings();
-		
-		// Load OBJ
+
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+		m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/rogland_clear_night_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/qwantani_sunrise_4k.exr");
+
+	 	// Load OBJ
 #if 1
 		fs::path objPath("../Assets/sponza/sponza.obj");
 		float objScale = 0.01f;
@@ -80,8 +85,6 @@ public:
 		tinyobj::ObjReaderConfig config;
 		config.triangulate = true;
 
-		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
-		//m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
 
 		if (Reader.ParseFromFile(objPath.string(), config)) 
 		{
@@ -100,6 +103,7 @@ public:
 					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]);
 					//glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
 				mat.Emission = glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
+				mat.Metallic = _mat.metallic;
 				mat.Roughness = (1000.0f - _mat.shininess) / 1000.0f;
 				mat.IOR = _mat.ior;
 
@@ -108,6 +112,8 @@ public:
 
 				mat.Name = _mat.name;
 
+				if (_mat.name == "Material__25")
+					mat.Metallic = 1.0;
 
 
 				if (!_mat.diffuse_texname.empty()) {
@@ -406,6 +412,15 @@ public:
 			rt->m_renderer.GetSettings().DoF_Strength = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
 		else if (lineStr._Starts_with("dofdistance="))
 			rt->m_renderer.GetSettings().DoF_Distance = std::stof(lineStr.substr(lineStr.find_last_of('=') + 1));
+
+		if (direction == glm::vec3(0.0f))
+			direction = glm::vec3(1, 0, 0);
+
+		if (rt->m_renderer.GetSettings().Bounces == 0)
+			rt->m_renderer.GetSettings().Bounces = 6;
+
+		if (rt->m_renderer.GetSettings().Exposure == 0.0f)
+			rt->m_renderer.GetSettings().Exposure = 1.0f;
 
 		rt->m_camera.SetPositionDirection(position, direction);
 	}

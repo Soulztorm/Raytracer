@@ -54,32 +54,38 @@ void RendererGPU::FillBuffers() {
 	int hdri_height = m_activeScene->hdri.GetHeight();
 	int hdri_pixelCount = hdri_width * hdri_height;
 	std::vector<float> hdriArray(hdri_pixelCount * 4);
+	std::vector<float> hdriCDFArray(hdri_pixelCount);
 	for (int i = 0; i < hdri_pixelCount; i++) {
 		hdriArray[i * 4] = m_activeScene->hdri.GetData()[i].r;
 		hdriArray[i * 4 + 1] = m_activeScene->hdri.GetData()[i].g;
 		hdriArray[i * 4 + 2] = m_activeScene->hdri.GetData()[i].b;
 		hdriArray[i * 4 + 3] = m_activeScene->hdri.GetData()[i].a;
+		hdriCDFArray[i] = m_activeScene->hdri.GetCDF()[i];
 	}
 	m_buf_hdri = m_kp_manager.imageT<float>(hdriArray, hdri_width, hdri_height, 4);
+	m_buf_hdri_cdf = m_kp_manager.tensor(hdriCDFArray);
 	
 
 	// Materials
-	std::vector<float> materialArray(m_activeScene->materials.size() * 9);
+	std::vector<float> materialArray(m_activeScene->materials.size() * 12);
 	std::vector<float> textureDiffuseArray;
 	std::vector<int> textureIndexArray(m_activeScene->materials.size() * 3, -1);
 
 	int currentTexPtr = 0;
 	for (int i = 0; i < m_activeScene->materials.size(); i++) {
 		const Material& mat = m_activeScene->materials[i];
-		materialArray[i * 9] = mat.Albedo.r;
-		materialArray[i * 9 + 1] = mat.Albedo.g;
-		materialArray[i * 9 + 2] = mat.Albedo.b;
-		materialArray[i * 9 + 3] = mat.Emission.r;
-		materialArray[i * 9 + 4] = mat.Emission.g;
-		materialArray[i * 9 + 5] = mat.Emission.b;
-		materialArray[i * 9 + 6] = mat.Roughness;
-		materialArray[i * 9 + 7] = mat.Transparency;
-		materialArray[i * 9 + 8] = mat.IOR;
+		materialArray[i * 12] = mat.Albedo.r;
+		materialArray[i * 12 + 1] = mat.Albedo.g;
+		materialArray[i * 12 + 2] = mat.Albedo.b;
+		materialArray[i * 12 + 3] = 1.0;
+		materialArray[i * 12 + 4] = mat.Emission.r;
+		materialArray[i * 12 + 5] = mat.Emission.g;
+		materialArray[i * 12 + 6] = mat.Emission.b;
+		materialArray[i * 12 + 7] = 1.0;
+		materialArray[i * 12 + 8] = mat.Metallic;
+		materialArray[i * 12 + 9] = mat.Roughness;
+		materialArray[i * 12 + 10] = mat.Transparency;
+		materialArray[i * 12 + 11] = mat.IOR;
 
 		// Textures
 		if (!mat.TexDiffuse.data.empty()) {
@@ -115,7 +121,7 @@ void RendererGPU::FillBuffers() {
 		m_buf_tris_opt, 
 		m_buf_tris_mats, m_buf_materials,
 		m_buf_textures, m_buf_textureDiffuseIndices,
-		m_buf_hdri});
+		m_buf_hdri, m_buf_hdri_cdf });
 }
 
 
@@ -157,7 +163,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 			//m_buf_tris_opt, m_buf_tris_normals, 
 			m_buf_tris_mats, m_buf_materials,
 			m_buf_textures, m_buf_textureDiffuseIndices,
-			m_buf_hdri,
+			m_buf_hdri, m_buf_hdri_cdf,
 			m_buf_imgAccu, m_buf_imgOut
 		};
 
@@ -223,7 +229,6 @@ void RendererGPU::RenderGPU(Camera* camera)
 	m_kp_pushConsts[0].skyX = m_settings.SkyX;
 	m_kp_pushConsts[0].skyY = m_settings.SkyY;
 	m_kp_pushConsts[0].accumulate = m_settings.Accumulate;
-	m_kp_pushConsts[0].hdri_sun_uv = m_activeScene->hdri.GetBrightestUV();
 
 	// Run the shader
 	m_kp_manager.sequence()

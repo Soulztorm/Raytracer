@@ -23,10 +23,11 @@ layout(set = 0, binding = 7) readonly buffer buf_texturesDiffuseIndices { int te
 
 // hdri
 layout(binding = 8, rgba32f) readonly uniform image2D hdri_image;
+layout(set = 0, binding = 9) readonly buffer buf_hdri_cdf { float hdri_cdf[]; };
 
 // Output image
-layout(set = 0, binding = 9) buffer buf_img_accu { vec4 img_accu[]; };
-layout(set = 0, binding = 10) writeonly buffer buf_img_out { vec4 img_out[]; };
+layout(set = 0, binding = 10) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 11) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 
 
@@ -48,7 +49,6 @@ layout(push_constant) readonly uniform PushConstants {
     float skyY;
     uint useACE;
     uint accumulate;
-    vec2 hdriSunUV;
 } camdata;
 
 #include "structs.glsl"
@@ -88,6 +88,32 @@ vec2 rotate(vec2 v, float a) {
 	return m * v;
 }
 
+int binarySearchCDF(float r) {
+    int low = 0;
+    int high = 4096 * 2048;
+    int mid;
+
+    r = clamp(r, 0, 1.0f - FLT_EPSILON);
+
+    // Loop until low and high converge.
+    while (low < high) {
+        mid = (low + high) / 2;
+        if (hdri_cdf[mid] < r)
+            low = mid + 1;
+        else
+            high = mid;
+    }
+    return low;
+}
+
+int linearSearchCDF(float r) {
+    for (int i=0; i < 4096 * 2048; i++){
+        if (hdri_cdf[i] >= r)
+            return i;
+    }
+    return 0;
+}
+
 
 
 vec3 hdrPixelToWorldDirection(in vec2 uv) {
@@ -102,10 +128,9 @@ vec3 hdrPixelToWorldDirection(in vec2 uv) {
     return normalize(worldDir);
 }
 
-vec4 SampleHDRIFromDirection(in vec3 worldDir)
-{
+vec3 RotateSkyWorldDir(in vec3 worldDir){
     // Apply longitude rotation (horizontal)
-    worldDir.xz = rotate(worldDir.xz, camdata.skyX * PI);
+    worldDir.xz = rotate(worldDir.xz, camdata.skyX * 2.0 * PI);
 
     // Apply latitude rotation correctly (vertical)
     float cosLat = cos(camdata.skyY * 2.0 * PI);
@@ -116,7 +141,28 @@ vec4 SampleHDRIFromDirection(in vec3 worldDir)
     rotatedDir.y = worldDir.y * cosLat - worldDir.z * sinLat;
     rotatedDir.z = worldDir.y * sinLat + worldDir.z * cosLat;
 
-    rotatedDir = normalize(rotatedDir);
+    return normalize(rotatedDir);
+}
+
+vec3 RotateSkyWorldDirInv(in vec3 worldDir){
+    // Apply longitude rotation (horizontal)
+    worldDir.xz = rotate(worldDir.xz, -camdata.skyX * 2.0 * PI);
+
+    // Apply latitude rotation correctly (vertical)
+    float cosLat = cos(camdata.skyY * 2.0 * PI);
+    float sinLat = sin(camdata.skyY * 2.0 * PI);
+
+    vec3 rotatedDir;
+    rotatedDir.x = worldDir.x;
+    rotatedDir.y = worldDir.y * cosLat - worldDir.z * sinLat;
+    rotatedDir.z = worldDir.y * sinLat + worldDir.z * cosLat;
+
+    return normalize(rotatedDir);
+}
+
+vec4 SampleHDRIFromDirection(in vec3 worldDir)
+{
+    vec3 rotatedDir = RotateSkyWorldDir(worldDir);
 
     // Compute spherical coordinates
     float longitude = atan(rotatedDir.z, rotatedDir.x);  // Ranges from -pi to pi
@@ -188,21 +234,17 @@ float FresnelReflectAmount (float n1, float n2, vec3 normal, vec3 incident)
 }
 
 
-vec3 sampleSunDisk(float sunAngularRadius, inout uint randomSeed) {
-    vec2 diskSample = RandomInCircle(randomSeed) * sunAngularRadius;
+
+vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
+
+    // Pick a random hdri direction, weighted by luminance. High intensity directions are chosen more often
+    int cdfIndex = binarySearchCDF(RandomValue(randomSeed));
+    // Convert from chosen pixel index in hdri to uv coordinates
+    vec2 hdriUV = fract(vec2((cdfIndex % 4096) / 4096.0, (cdfIndex / 4096) / 2048.0)); 
     
-    // Create tangent space
-    vec3 up = abs(sunDir.y) < 0.999 ? vec3(0,1,0) : vec3(1,0,0);
-    vec3 right = normalize(cross(up, sunDir));
-    vec3 forward = cross(sunDir, right);
 
-    // Rotate sun direction by sampled offset
-    return normalize(sunDir + right * diskSample.x + forward * diskSample.y);
-}
+    vec3 lightDir = RotateSkyWorldDirInv(hdrPixelToWorldDirection(hdriUV));
 
-
-vec3 sampleDirectLight(HitInfo hitInfo, float sunAngularRadius, inout uint randomSeed) {
-    vec3 lightDir = sampleSunDisk(sunAngularRadius, randomSeed);
 
     Ray sunTestRay;
     sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON;
@@ -213,9 +255,11 @@ vec3 sampleDirectLight(HitInfo hitInfo, float sunAngularRadius, inout uint rando
 
     // Check if light is visible (shadow ray)
     if (sunVisible) {
-        // Compute BSDF probability
-        float p_bsdf = pdfBSDF(lightDir, hitInfo.normal);
-        vec3 sunLight = p_bsdf * SampleHDRIFromDirection(lightDir).rgb;
+        float probability = cdfIndex == 0 ? hdri_cdf[0] :  hdri_cdf[cdfIndex] - hdri_cdf[cdfIndex - 1]; 
+
+        float intensity = max(dot(hitInfo.normal, lightDir), 0.0);
+
+        vec3 sunLight = SampleHDRIFromDirection(lightDir).rgb * intensity;
         return sunLight;
     } 
 
@@ -241,7 +285,7 @@ void main() {
     vec3 contribution = vec3(1.0);
     float pdfContribution = 1.0f;
 
-    sunDir = hdrPixelToWorldDirection(camdata.hdriSunUV);
+    //sunDir = hdrPixelToWorldDirection(camdata.hdriSunUV);
 
     // Apply longitude rotation (horizontal)
     sunDir.xz = rotate(sunDir.xz, -camdata.skyX * PI);
@@ -288,7 +332,6 @@ void main() {
 
             Material mat = GetMaterial(hitInfo.materialIndex);
 
-            bool hitInside = dot(ray.Direction, hitInfo.normal) > 0.0f;
 
             // Get the color for this material, either diffuse texture lookup or material albedo
             vec4 albedoColor = GetAlbedoColor(mat, hitInfo);
@@ -300,64 +343,29 @@ void main() {
             }
 
 
+            // Direct light
+            vec3 directLight = vec3(0);
+            if (RandomValue(randomSeed) < 0.2){
+                directLight = sampleDirectLight(hitInfo, randomSeed);          
+            }
+
+
+            vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
+            pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal);
+
             // New ray origin offset from last hit position along surface normal
             ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
+            ray.Direction = diffuseRayDir;
 
-
-            bool doTransmission = false;
-            if (mat.Transparency > 0.0f) {
-                // fresnel term    0: no reflect   1: full reflect
-                // float fresnel = dot(ray.Direction, -hitInfo.normal);
-                float fresnel = FresnelReflectAmount(hitInside ? 1.0 : mat.IOR, hitInside ? mat.IOR : 1.0,  hitInfo.normal, ray.Direction);
-                if (RandomValue(randomSeed) < fresnel) {
-                    doTransmission = true;
-
-                }
-            }
-
-
-            // Transmission or reflection ray?
-            if (doTransmission) {
-                Ray refractionRay;
-                if (RefractionRay(ray.Direction, hitInfo.normal, hitInfo.position, mat.IOR, refractionRay)) {
-                    ray = refractionRay;
-                    continue;
-                }
-            }
-            else {
-                // Test against sun
-                directLight = vec3(0);
-                if (RandomValue(randomSeed) < 0.5){
-                    float sunAngularRadius = 0.00872665; // 0.5 degrees in radians (Real world sun size)
-                    directLight = sampleDirectLight(hitInfo, sunAngularRadius, randomSeed);
-                }
-
-
-               //vec3 diffuseRayDir = sampleGGXReflection(ray.Direction, hitInfo.normal, mat.Roughness, randomSeed);
-                vec3 diffuseRayDir;
-
-
-                if (RandomValue(randomSeed) > mat.Roughness){
-                    diffuseRayDir = reflect(ray.Direction, hitInfo.normal);
-                    pdfContribution = 1.0 / (1.0 - mat.Roughness);  // Probability of choosing reflection
-                }
-                else{
-                    diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-                    pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal);
-                }
-               // vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-
-                //vec3 newDirection = normalize(mix(reflectedVector, diffuseRayDir, mat.Roughness * mat.Roughness));
-
-                //pdfContribution = pdfBSDF(newDirection, hitInfo.normal);
-                ray.Direction = diffuseRayDir;
-            }
-
-
+            contribution *= albedoColor.rgb;
  
+
+
+
             //finalColor += mat.Emission * contribution;
-            contribution *= albedoColor.rgb / pdfContribution;
-            finalColor += (directLight + mat.Emission) * contribution;
+            finalColor += (directLight + mat.Emission.rgb) * contribution;
+
+            contribution /= pdfContribution;
 
 
             // Russian Roulette
@@ -386,8 +394,6 @@ void main() {
     }
     
     
-
-
     vec4 oldColor = img_accu[gl_GlobalInvocationID.x];
     vec4 newColor = oldColor + ((vec4(finalColor, 1.0) - oldColor) / camdata.frameindex); 
     img_accu[gl_GlobalInvocationID.x] = newColor;

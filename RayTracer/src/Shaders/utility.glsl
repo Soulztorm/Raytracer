@@ -4,7 +4,7 @@
 
 
 #define FLT_MAX 3.402823466e+38
-#define FLT_EPSILON 0.00001
+#define FLT_EPSILON 0.0001
 
 
 const float ACE_a = 2.51f;

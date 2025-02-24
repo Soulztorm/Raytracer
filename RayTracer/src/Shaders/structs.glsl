@@ -46,7 +46,7 @@ struct TriangleOptimized
 
 struct Material {
 	vec4 Albedo;
-	vec3 Emission;
+	vec4 Emission;
 	float Metallic;
 	float Roughness;
 	float Transparency;
@@ -110,24 +110,26 @@ TriangleOptimized GetTriangleOptimized(uint triIndex){
 
 
 Material GetMaterial(uint materialIndex){
-    uint matOffset = 9 * materialIndex;
+    uint matOffset = 12 * materialIndex;
 
     vec4 albedo = vec4(
     mats[matOffset],
     mats[matOffset+ 1],
     mats[matOffset+ 2],
-    1.0);
+    mats[matOffset+ 3]);
 
-    vec3 emission = vec3(
-    mats[matOffset + 3],
+    vec4 emission = vec4(
     mats[matOffset + 4],
-    mats[matOffset + 5]);
+    mats[matOffset + 5],
+    mats[matOffset + 6],
+    mats[matOffset + 7]);
 
-    float roughness = mats[matOffset + 6];
-    float transparency = mats[matOffset + 7];
-    float ior = mats[matOffset + 8];
+    float metallic = mats[matOffset + 8];
+    float roughness = mats[matOffset + 9];
+    float transparency = mats[matOffset + 10];
+    float ior = mats[matOffset + 11];
 
-    return Material(albedo, emission, 0.0, roughness, transparency, ior);
+    return Material(albedo, emission, metallic, roughness, transparency, ior);
 }
 
 BoundingBox GetNodeBB(uint nodeIndex){

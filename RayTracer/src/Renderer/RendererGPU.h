@@ -21,7 +21,6 @@ struct PushConsts
     float skyY;
     uint32_t useACE;
     uint32_t accumulate;
-    glm::vec2 hdri_sun_uv;
 };
 
 class RendererGPU : public Renderer {
@@ -69,6 +68,7 @@ private:
 
     // HDRI
     std::shared_ptr<kp::ImageT<float>> m_buf_hdri;
+    std::shared_ptr<kp::TensorT<float>> m_buf_hdri_cdf;
 
     // Textures
     std::shared_ptr<kp::TensorT<float>> m_buf_textures;

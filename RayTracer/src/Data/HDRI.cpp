@@ -27,41 +27,56 @@ bool HDRI::LoadFromFile(const char* filename) {
 		return false;
 	}
 
-	float max_lum = 0.0;
-	float logSum = 0.0f;
-	float epsilon = 1e-6f;
+
+	std::vector<float> weights(m_width * m_height, 0.0);
+	std::vector<float> pdf(m_width * m_height, 0.0);
+	float totalWeight = 0.0;
 
 	// File is valid, fill the glm data vector with rgba
 	m_data = (glm::vec4*)malloc(m_width * m_height * sizeof(glm::vec4));
+	m_cdf = (float*)malloc(m_width * m_height * sizeof(float));
 	for (int y = 0; y < m_height; y++) {
+
+		float theta = (static_cast<float>(y) + 0.5f) / static_cast<float>(m_height) * M_PI;
 		for (int x = 0; x < m_width; x++) {
 			int pixelIndex = y * m_width + x;
+
 			glm::vec4 rgba = glm::vec4(data[4 * pixelIndex], data[4 * pixelIndex + 1], data[4 * pixelIndex + 2], data[4 * pixelIndex + 3]);
 			glm::vec3 rgb = glm::vec3(rgba);
 
 			// Clamp luminance to reduce fireflies
-			float lum = glm::dot(rgb, glm::vec3(0.212671f, 0.715160f, 0.072169f));
+			float luminance = glm::dot(rgb, glm::vec3(0.212671f, 0.715160f, 0.072169f));
 
-			logSum += std::log(lum + epsilon);
+			weights[pixelIndex] = luminance;
+			totalWeight += weights[pixelIndex];
 
-			if (lum > max_lum) {
-				max_lum = lum;
-				m_brightestUV = glm::vec2(x / (float)m_width, y / (float)m_height);
-			}
-			max_lum = std::max(max_lum, lum);
-			if (lum > MAX_LUMINANCE)
+			//logSum += std::log(lum + epsilon);
+
+			//if (lum > max_lum) {
+			//	max_lum = lum;
+			//	m_brightestUV = glm::vec2(x / (float)m_width, y / (float)m_height);
+			//}
+			//max_lum = std::max(max_lum, lum);
+			if (luminance > MAX_LUMINANCE)
 			{
-				rgba *= MAX_LUMINANCE / lum;
+				rgba *= MAX_LUMINANCE / luminance;
 			}
+
 			m_data[pixelIndex] = rgba;
 		}
 	}
 
-	logSum = std::exp(logSum / (float)(m_width * m_height));
+	// Build PDF and CDF
+	for (int i = 0; i < m_width * m_height; i++) {
+		pdf[i] = weights[i] / totalWeight;
+		m_cdf[i] = (i == 0) ? pdf[i] : m_cdf[i - 1] + pdf[i];
+	}
 
-	std::cout << "Max HDRI lum        : " << max_lum << "\n\n";
-	std::cout << "Log sum HDRI        : " << logSum << "\n\n";
-	std::cout << "Bright spot UV HDRI : " << m_brightestUV.x << ", " << m_brightestUV.y << "\n\n";
+	//logSum = std::exp(logSum / (float)(m_width * m_height));
+
+	//std::cout << "Max HDRI lum        : " << max_lum << "\n\n";
+	//std::cout << "Log sum HDRI        : " << logSum << "\n\n";
+	//std::cout << "Bright spot UV HDRI : " << m_brightestUV.x << ", " << m_brightestUV.y << "\n\n";
 
 	// Free data and flag this HDRI as valid
 	free(data);
