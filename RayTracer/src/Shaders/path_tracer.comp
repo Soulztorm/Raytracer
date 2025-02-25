@@ -233,11 +233,15 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
 
 
     Ray sunTestRay;
-    sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON;
+    //sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON * 4.0;
+    sunTestRay.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON * 1.0;
     sunTestRay.Direction = lightDir;
 
     HitInfo hitSun = IntersectRay(sunTestRay);
     bool sunVisible = hitSun.materialIndex < 0;
+
+    //if (hitSun.materialIndex >= 0 && length(hitSun.position - hitInfo.position) < 0.01)
+    //    sunVisible = true;  // Ignore self-intersections on thin surfaces
 
     // Check if light is visible (shadow ray)
     if (sunVisible) {
@@ -327,31 +331,57 @@ void main() {
                 directLight = sampleDirectLight(hitInfo, randomSeed);          
           //  }
 
+
+            // Compute Fresnel term
+            vec3 F0 = mix(vec3(0.04), albedoColor.rgb, mat.Metallic);
+            vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - dot(hitInfo.normal, -ray.Direction), 5.0);
+
             float alpha = mat.Roughness * mat.Roughness;
+            float reflectionFactor = 1.0 - alpha;
+
+            // Compute probability of sampling reflection vs. diffuse
+            float p_specular = reflectionFactor * PI1;
+            float p_diffuse = pdfBSDF(ray.Direction, hitInfo.normal);
+            pdfContribution = mix(p_diffuse, p_specular, fresnelTerm.r);
+
+            // Less rough = higher clamp, More rough = lower clamp
+            pdfContribution = max(pdfContribution, 1.0); 
 
             // Reflection ray
             if (RandomValue(randomSeed) > alpha){
                 vec3 reflectionDir = reflect(ray.Direction, hitInfo.normal);
-                pdfContribution = (1.0 - alpha) * PI1; // Probability of reflection, dependant on roughness
+               // pdfContribution = (1.0 - alpha) * PI1; // Probability of reflection, dependant on roughness
                 ray.Direction = reflectionDir;
             }
             // Diffusion ray
             else{
                 vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-                pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal); // Probability of this chosen direction of cosine weighted hemisphere
+                //pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal); // Probability of this chosen direction of cosine weighted hemisphere
                 ray.Direction = diffuseRayDir;
             }
+
+
+
 
 
             // New ray origin offset from last hit position along surface normal
             ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
 
 
-    
+            // Step 1: Accumulate emitted light first (Self-emission does not depend on throughput)
             finalColor += mat.Emission.rgb * contribution;
-            contribution *= albedoColor.rgb;
+
+            // Step 2: Apply Fresnel-based contribution scaling (correct diffuse-metallic mix)
+            contribution *= mix(albedoColor.rgb, fresnelTerm, mat.Metallic); 
+
+            // Step 3: Accumulate direct light contribution
             finalColor += directLight * contribution;
-            contribution /= max(pdfContribution, FLT_EPSILON);
+
+            // Step 4: Apply PDF weighting (to correctly balance probability of sampling this path)
+            contribution /= pdfContribution;  // Prevent overly strong indirect light
+
+            // Step 5: Reduce indirect contribution per bounce to maintain contrast
+            //contribution *= 1.0 / (1.0 + float(i) * 0.2);
 
 
             // Russian Roulette

@@ -130,10 +130,10 @@ public:
 						mat.TexDiffuse.width = w;
 						mat.TexDiffuse.height = h;
 						for (int i = 0; i < w * h; i++) {
-							float r = (static_cast<float>(data[i * 4]) / 255.0f);
-							float g = (static_cast<float>(data[i * 4 + 1]) / 255.0f);
-							float b = (static_cast<float>(data[i * 4 + 2]) / 255.0f);
-							float a = (static_cast<float>(data[i * 4 + 3]) / 255.0f);
+							float r = glm::clamp(static_cast<float>(data[i * 4]) / 255.0f, 0.0f, 1.0f);
+							float g = glm::clamp(static_cast<float>(data[i * 4 + 1]) / 255.0f, 0.0f, 1.0f);
+							float b = glm::clamp(static_cast<float>(data[i * 4 + 2]) / 255.0f, 0.0f, 1.0f);
+							float a = glm::clamp(static_cast<float>(data[i * 4 + 3]) / 255.0f, 0.0f, 1.0f);
 							mat.TexDiffuse.data.emplace_back(r, g, b, a);
 						}
 					}
