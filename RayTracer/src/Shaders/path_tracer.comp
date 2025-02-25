@@ -264,11 +264,11 @@ void main() {
     vec2 uvCentered = uv * 2.f - 1.f;
 
 
-    skyDir_cl = cos(camdata.skyY * 2.0 * PI);
-    skyDir_sl = sin(camdata.skyY * 2.0 * PI);
+    skyDir_cl = cos((2.0 * camdata.skyY - 1.0) * 2.0 * PI);
+    skyDir_sl = sin((2.0 * camdata.skyY - 1.0) * 2.0 * PI);
 
-    skyDirInv_cl = cos(-camdata.skyY * 2.0 * PI);
-    skyDirInv_sl = sin(-camdata.skyY * 2.0 * PI);
+    skyDirInv_cl = cos(-(2.0 * camdata.skyY - 1.0) * 2.0 * PI);
+    skyDirInv_sl = sin(-(2.0 * camdata.skyY - 1.0) * 2.0 * PI);
 
 
 
@@ -323,9 +323,9 @@ void main() {
 
             // Direct light
             vec3 directLight = vec3(0);
-            if (RandomValue(randomSeed) < 0.5f){
+            //if (RandomValue(randomSeed) < 0.5f){
                 directLight = sampleDirectLight(hitInfo, randomSeed);          
-            }
+          //  }
 
             float alpha = mat.Roughness * mat.Roughness;
 
@@ -348,9 +348,10 @@ void main() {
 
 
     
+            finalColor += mat.Emission.rgb * contribution;
             contribution *= albedoColor.rgb;
-            finalColor += (directLight + mat.Emission.rgb) * contribution;
-            contribution /= pdfContribution;
+            finalColor += directLight * contribution;
+            contribution /= max(pdfContribution, FLT_EPSILON);
 
 
             // Russian Roulette

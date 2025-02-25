@@ -56,6 +56,8 @@ private:
 
 using namespace Walnut;
 
+#define SCENE 0
+
 class RaytracerLayer : public Walnut::Layer
 {
 public:
@@ -71,15 +73,17 @@ public:
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/qwantani_sunrise_4k.exr");
 
 	 	// Load OBJ
-#if 1
-		fs::path objPath("../Assets/sponza/sponza.obj");
-		float objScale = 0.01f;
-#else
-
-		fs::path objPath("../Assets/fireplace_room/fireplace_room.obj");
 		float objScale = 1.f;
+		fs::path objPath;
+
+#if SCENE == 0
+		objPath = ("../Assets/sponza/sponza.obj");
+		objScale = 0.01f;
+#elif SCENE == 1
+		objPath = ("../Assets/fireplace_room/fireplace_room.obj");
+#else
+		objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
 #endif
-		//fs::path objPath("../Assets/cornell-box/CornellBox-Water2.obj");
 
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
@@ -107,8 +111,8 @@ public:
 				mat.Roughness = (1000.0f - _mat.shininess) / 1000.0f;
 				mat.IOR = _mat.ior;
 
-				if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0 && _mat.illum == 3)
-					mat.Transparency = 1.0f - _mat.transmittance[0];
+				//if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0 && _mat.illum == 3)
+				//	mat.Transparency = 1.0f - _mat.transmittance[0];
 
 				mat.Name = _mat.name;
 
