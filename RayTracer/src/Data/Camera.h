@@ -25,7 +25,11 @@ public:
 
 	const std::vector<glm::vec3>& GetRayDirections() const { return m_RayDirections; }
 
+	void Reset() { SetPositionDirection(glm::vec3(0), glm::vec3(1, 0, 0)); }
+
 	float GetRotationSpeed();
+	void SetSpeed(float speed) { m_Speed = speed; }
+
 private:
 	void RecalculateProjection();
 	void RecalculateView();
@@ -42,6 +46,7 @@ private:
 	float m_VerticalFOV = 45.0f;
 	float m_NearClip = 0.1f;
 	float m_FarClip = 100.0f;
+	float m_Speed = 1.0f;
 
 	glm::vec3 m_Position{0.0f, 0.0f, 0.0f};
 	glm::vec3 m_ForwardDirection{0.0f, 0.0f, 0.0f};

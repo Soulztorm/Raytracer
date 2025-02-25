@@ -26,7 +26,7 @@
 
 
 using namespace Walnut;
-#define SCENE 0
+#define SCENE 1
 
 
 template <typename T, typename Total, size_t N>
@@ -107,12 +107,14 @@ public:
 
 #if SCENE == 0
 		objPath = ("../Assets/sponza/sponza.obj");
-		objScale = 0.01f;
+		objScale = 0.1f;
 #elif SCENE == 1
 		objPath = ("../Assets/fireplace_room/fireplace_room.obj");
 #else
 		objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
 #endif
+
+		//m_camera.SetSpeed(1.0f * objScale);
 
 		tinyobj::ObjReader Reader;
 		tinyobj::ObjReaderConfig config;
@@ -272,11 +274,13 @@ public:
 		ImGui::Checkbox("Use ACE Color", &m_renderer.GetSettings().UseACE_Color);
 		ImGui::DragInt("# Bounces", (int*)&m_renderer.GetSettings().Bounces, 0.05f, 0);
 
-		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.0001f, 0.0f, 10.0f);
+		ImGui::DragFloat("DoF Strength", &m_renderer.GetSettings().DoF_Strength, 0.5f, 0.0f, 1000.0f);
 		ImGui::DragFloat("DoF Distance", &m_renderer.GetSettings().DoF_Distance, 0.05f, 0.0f, 10000.0f);
 
 		ImGui::DragFloat("Sky X", &m_renderer.GetSettings().SkyX, 0.01f, 0.0f, 1.0f);
 		ImGui::DragFloat("Sky Y", &m_renderer.GetSettings().SkyY, 0.01f, 0.0f, 1.0f);
+		if (ImGui::Button("Reset Camera"))
+			m_camera.Reset();
 
 		if (m_renderer.GetSettings().RenderMode != oldSettings.RenderMode || 
 			m_renderer.GetSettings().UseGPU != oldSettings.UseGPU ||
@@ -320,7 +324,7 @@ public:
 		m_viewportHeight = (uint32_t)ImGui::GetContentRegionAvail().y;
 
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_::ImGuiMouseButton_Middle)) {
-			auto pos = glm::vec2(ImGui::GetMousePos().x - ImGui::GetWindowPos().x, ImGui::GetMousePos().y - ImGui::GetWindowPos().y);
+			auto pos = glm::vec2(ImGui::GetMousePos().x - ImGui::GetWindowPos().x, m_viewportHeight - (ImGui::GetMousePos().y - ImGui::GetWindowPos().y) - 1);
 			Ray ray;
 			ray.Origin = m_camera.GetPosition();
 			ray.Direction = m_camera.GetRayDirections()[pos.y * m_viewportWidth + pos.x];

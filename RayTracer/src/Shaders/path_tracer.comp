@@ -289,11 +289,11 @@ void main() {
     Ray ray;
 
     // Defocus ray origin
-	vec2 camJitter = RandomInCircle(randomSeed) * camdata.dofStrength;
+	vec2 camJitter = RandomInCircle(randomSeed) * (camdata.dofStrength / max(image_width, image_height));
 	ray.Origin = camdata.camPos.xyz + camdata.camRight.xyz * camJitter.x + camdata.camUp.xyz * camJitter.y;
 
 	// Defocus at viewpoint, basically anti aliasing
-	vec2 lookatJitter = RandomInCircle(randomSeed) * 0.01;
+	vec2 lookatJitter = RandomInCircle(randomSeed) * (2.0 / max(image_width, image_height));
 	vec3 lookatVector = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
 	vec3 lookatPosition = lookatVector * camdata.dofDist + camdata.camPos.xyz + camdata.camRight.xyz * lookatJitter.x + camdata.camUp.xyz * lookatJitter.y;
 	ray.Direction = normalize(lookatPosition - ray.Origin);
@@ -347,13 +347,7 @@ void main() {
             float alpha = roughness * roughness;
             float reflectionFactor = 1.0 - alpha;
 
-            // Compute probability of sampling reflection vs. diffuse
-            float p_specular = reflectionFactor * PI1;
-            float p_diffuse = pdfBSDF(ray.Direction, hitInfo.normal);
-            pdfContribution = mix(p_diffuse, p_specular, fresnelTerm.r);
 
-            // Less rough = higher clamp, More rough = lower clamp
-            pdfContribution = max(pdfContribution, 1.0); 
 
             // Reflection ray
             if (RandomValue(randomSeed) > alpha){
@@ -369,7 +363,13 @@ void main() {
             }
 
 
+            // // Compute probability of sampling reflection vs. diffuse
+            // float p_specular = reflectionFactor * PI1;
+            // float p_diffuse = pdfBSDF(ray.Direction, hitInfo.normal);
+            // pdfContribution = mix(p_diffuse, p_specular, fresnelTerm.r);
 
+            // // Less rough = higher clamp, More rough = lower clamp
+            // pdfContribution = max(pdfContribution, 1.0); 
 
 
             // New ray origin offset from last hit position along surface normal
@@ -380,13 +380,13 @@ void main() {
             finalColor += mat.Emission.rgb * contribution;
 
             // Step 2: Apply Fresnel-based contribution scaling (correct diffuse-metallic mix)
-            contribution *= mix(albedoColor.rgb, fresnelTerm, mat.Metallic); 
+            contribution *= mix(albedoColor.rgb, max(vec3(0), fresnelTerm), mat.Metallic); 
 
             // Step 3: Accumulate direct light contribution
             finalColor += directLight * contribution;
 
             // Step 4: Apply PDF weighting (to correctly balance probability of sampling this path)
-            contribution /= pdfContribution;  // Prevent overly strong indirect light
+            //contribution /= pdfContribution;  // Prevent overly strong indirect light
 
             // Step 5: Reduce indirect contribution per bounce to maintain contrast
             //contribution *= 1.0 / (1.0 + float(i) * 0.2);

@@ -40,15 +40,19 @@ bool Camera::OnUpdate(float ts)
 	constexpr glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
 	glm::vec3 rightDirection = glm::cross(m_ForwardDirection, upDirection);
 
-	float speed = 5.0f;
+	float speed = m_Speed;
 
 	if (Input::IsKeyDown(KeyCode::LeftShift))
 	{
-		speed = 1.0f;
+		speed *= 0.2f;
 	}
-	if (Input::IsKeyDown(KeyCode::LeftControl))
+	else if (Input::IsKeyDown(KeyCode::LeftControl))
 	{
-		speed = 10.0f;
+		speed *= 10.0f;
+	}
+	else if (Input::IsKeyDown(KeyCode::LeftAlt))
+	{
+		speed *= 100.0f;
 	}
 
 	// Movement
