@@ -93,8 +93,6 @@ vec3 RandomCosineInHemisphere(vec3 N, inout uint randomstate) {
 }
 
 
-
-
 vec4 GetAlbedoColor(in Material mat, in HitInfo hitInfo){
     vec4 albedoColor = mat.Albedo;
     int texIndex = textures_diffuseIdx[hitInfo.materialIndex*3];
@@ -102,14 +100,32 @@ vec4 GetAlbedoColor(in Material mat, in HitInfo hitInfo){
         int texWidth = textures_diffuseIdx[hitInfo.materialIndex*3 + 1];
         int texHeight = textures_diffuseIdx[hitInfo.materialIndex*3 + 2];
 
-        int px_x = int(hitInfo.uv.x * (texWidth - 1));
-        int px_y = int((1.0 - hitInfo.uv.y) * (texHeight - 1));
+        int px_x = int(hitInfo.uv.x * (texWidth-1));
+        int px_y = int((1.0 - hitInfo.uv.y) * (texHeight-1));
 
         int px_idx = texIndex + (px_y * texWidth + px_x);
 
-        albedoColor = textures_diffuse[px_idx];
+        albedoColor = textures[px_idx];
     }
     return albedoColor;
+}
+
+
+vec4 GetSpecularColor(in Material mat, in HitInfo hitInfo){
+    vec4 specularColor = vec4(1.0 - mat.Roughness);
+    int texIndex = textures_specularIdx[hitInfo.materialIndex*3];
+    if (texIndex >= 0){
+        int texWidth = textures_specularIdx[hitInfo.materialIndex*3 + 1];
+        int texHeight = textures_specularIdx[hitInfo.materialIndex*3 + 2];
+
+        int px_x = int(hitInfo.uv.x * (texWidth-1));
+        int px_y = int((1.0 - hitInfo.uv.y) * (texHeight-1));
+
+        int px_idx = texIndex + (px_y * texWidth + px_x);
+
+        specularColor = textures[px_idx];
+    }
+    return specularColor;
 }
 
 

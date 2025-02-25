@@ -13,3 +13,5 @@ bin-int
 /Assets
 /RayTracer/imgui.ini
 *.spv
+/vendor/imgui_old
+*.zip

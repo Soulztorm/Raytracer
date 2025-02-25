@@ -49,6 +49,7 @@ struct Material {
 
 	// Textures
 	Texture TexDiffuse;
+	Texture TexSpecular;
 };
 
 struct Scene {

@@ -18,16 +18,21 @@ layout(set = 0, binding = 4) readonly buffer buf_tris_mats { int tris_mats[]; };
 // materials
 layout(set = 0, binding = 5) readonly buffer buf_mats { float mats[]; };
 
-layout(set = 0, binding = 6) readonly buffer buf_texturesDiffuse { vec4 textures_diffuse[]; };
+// Textures
+layout(set = 0, binding = 6) readonly buffer buf_textures { vec4 textures[]; };
+// Diffuse
 layout(set = 0, binding = 7) readonly buffer buf_texturesDiffuseIndices { int textures_diffuseIdx[]; };
+// Specular
+layout(set = 0, binding = 8) readonly buffer buf_texturesSpecularIndices { int textures_specularIdx[]; };
+
 
 // hdri
-layout(binding = 8, rgba32f) readonly uniform image2D hdri_image;
-layout(set = 0, binding = 9) readonly buffer buf_hdri_cdf { float hdri_cdf[]; };
+layout(rgba32f, binding = 9) readonly uniform image2D hdri_image;
+layout(set = 0, binding = 10) readonly buffer buf_hdri_cdf { float hdri_cdf[]; };
 
 // Output image
-layout(set = 0, binding = 10) buffer buf_img_accu { vec4 img_accu[]; };
-layout(set = 0, binding = 11) writeonly buffer buf_img_out { vec4 img_out[]; };
+layout(set = 0, binding = 11) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 12) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 
 
@@ -233,15 +238,11 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
 
 
     Ray sunTestRay;
-    //sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON * 4.0;
-    sunTestRay.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON * 1.0;
+    sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON * 10.0;
     sunTestRay.Direction = lightDir;
 
     HitInfo hitSun = IntersectRay(sunTestRay);
     bool sunVisible = hitSun.materialIndex < 0;
-
-    //if (hitSun.materialIndex >= 0 && length(hitSun.position - hitInfo.position) < 0.01)
-    //    sunVisible = true;  // Ignore self-intersections on thin surfaces
 
     // Check if light is visible (shadow ray)
     if (sunVisible) {
@@ -317,6 +318,10 @@ void main() {
 
             // Get the color for this material, either diffuse texture lookup or material albedo
             vec4 albedoColor = GetAlbedoColor(mat, hitInfo);
+            vec4 specularColor = GetSpecularColor(mat, hitInfo);
+
+           // finalColor = specularColor.rgb;
+          //  break;
 
             // Alpha clipping, continue ray on other side (Alpha transparency in textures)
             if (albedoColor.a < 0.9){
@@ -336,7 +341,10 @@ void main() {
             vec3 F0 = mix(vec3(0.04), albedoColor.rgb, mat.Metallic);
             vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - dot(hitInfo.normal, -ray.Direction), 5.0);
 
-            float alpha = mat.Roughness * mat.Roughness;
+            float specToRough = sqrt(1.0 - specularColor.r);
+            float roughness = mix(specToRough, 1.0 , mat.Roughness);
+
+            float alpha = roughness * roughness;
             float reflectionFactor = 1.0 - alpha;
 
             // Compute probability of sampling reflection vs. diffuse

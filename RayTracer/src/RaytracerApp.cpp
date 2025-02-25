@@ -24,6 +24,11 @@
 #include <filesystem>
 #define fs std::filesystem
 
+
+using namespace Walnut;
+#define SCENE 0
+
+
 template <typename T, typename Total, size_t N>
 class Moving_Average
 {
@@ -54,9 +59,33 @@ private:
 	Total total_{ 0 };
 };
 
-using namespace Walnut;
+bool tryLoadTexture(Texture& texture, const std::string& texName, const std::string& texFolder) {
+	if (texName.empty())
+		return false;
 
-#define SCENE 0
+	std::string dp = fs::absolute(texFolder + "/" + texName).string();
+
+	int w, h, n;
+	unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 4);
+
+	if (!data)
+		return false;
+
+	texture.width = w;
+	texture.height = h;
+	texture.data.reserve(w * h);
+	for (int i = 0; i < w * h; i++) {
+		float r = glm::clamp(static_cast<float>(data[i * 4]) / 255.0f, 0.0f, 1.0f);
+		float g = glm::clamp(static_cast<float>(data[i * 4 + 1]) / 255.0f, 0.0f, 1.0f);
+		float b = glm::clamp(static_cast<float>(data[i * 4 + 2]) / 255.0f, 0.0f, 1.0f);
+		float a = glm::clamp(static_cast<float>(data[i * 4 + 3]) / 255.0f, 0.0f, 1.0f);
+		texture.data.emplace_back(r, g, b, a);
+	}
+	free(data);
+}
+
+
+
 
 class RaytracerLayer : public Walnut::Layer
 {
@@ -119,26 +148,10 @@ public:
 				if (_mat.name == "Material__25")
 					mat.Metallic = 1.0;
 
-
-				if (!_mat.diffuse_texname.empty()) {
-					std::string dp = fs::absolute(objPath.parent_path().string() + "/" + _mat.diffuse_texname).string();
-
-					int w, h, n;
-					unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 4);
-
-					if (data) {
-						mat.TexDiffuse.width = w;
-						mat.TexDiffuse.height = h;
-						for (int i = 0; i < w * h; i++) {
-							float r = glm::clamp(static_cast<float>(data[i * 4]) / 255.0f, 0.0f, 1.0f);
-							float g = glm::clamp(static_cast<float>(data[i * 4 + 1]) / 255.0f, 0.0f, 1.0f);
-							float b = glm::clamp(static_cast<float>(data[i * 4 + 2]) / 255.0f, 0.0f, 1.0f);
-							float a = glm::clamp(static_cast<float>(data[i * 4 + 3]) / 255.0f, 0.0f, 1.0f);
-							mat.TexDiffuse.data.emplace_back(r, g, b, a);
-						}
-					}
-					free(data);
-				}
+				// Diffuse Texture
+				tryLoadTexture(mat.TexDiffuse, _mat.diffuse_texname, objPath.parent_path().string());
+				// Specular Texture
+				tryLoadTexture(mat.TexSpecular, _mat.specular_texname, objPath.parent_path().string());
 			}
 
 

@@ -20,7 +20,7 @@ void RendererGPU::FillBuffers() {
 	std::vector<Node>* nodes = m_activeBVH->GetNodes();
 	std::vector<float> bbArray(nodes->size() * 6);
 	std::vector<int> itArray(nodes->size() * 2);
-	for (int i = 0; i < nodes->size(); i ++) {
+	for (int i = 0; i < nodes->size(); i++) {
 		// Copy the Bounding box
 		BoundingBox bb = nodes->at(i).boundingBox;
 		memcpy(&(bbArray[i * 6]), &bb, sizeof(BoundingBox));
@@ -64,12 +64,13 @@ void RendererGPU::FillBuffers() {
 	}
 	m_buf_hdri = m_kp_manager.imageT<float>(hdriArray, hdri_width, hdri_height, 4);
 	m_buf_hdri_cdf = m_kp_manager.tensor(hdriCDFArray);
-	
+
 
 	// Materials
 	std::vector<float> materialArray(m_activeScene->materials.size() * 12);
-	std::vector<float> textureDiffuseArray;
-	std::vector<int> textureIndexArray(m_activeScene->materials.size() * 3, -1);
+	std::vector<float> textureArray;
+	std::vector<int> textureDiffuseIndexArray(m_activeScene->materials.size() * 3, -1);
+	std::vector<int> textureSpecularIndexArray(m_activeScene->materials.size() * 3, -1);
 
 	int currentTexPtr = 0;
 	for (int i = 0; i < m_activeScene->materials.size(); i++) {
@@ -89,38 +90,54 @@ void RendererGPU::FillBuffers() {
 
 		// Textures
 		if (!mat.TexDiffuse.data.empty()) {
-			int texSize = mat.TexDiffuse.width * mat.TexDiffuse.height;
-			for (int d = 0; d < texSize; d++) {
-				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].r);
-				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].g);
-				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].b);
-				textureDiffuseArray.push_back(mat.TexDiffuse.data[d].a);
+			int texSizeDiffuse = mat.TexDiffuse.width * mat.TexDiffuse.height;
+			for (int d = 0; d < texSizeDiffuse; d++) {
+				textureArray.push_back(mat.TexDiffuse.data[d].r);
+				textureArray.push_back(mat.TexDiffuse.data[d].g);
+				textureArray.push_back(mat.TexDiffuse.data[d].b);
+				textureArray.push_back(mat.TexDiffuse.data[d].a);
 			}
-			textureIndexArray[i*3] = currentTexPtr;
-			textureIndexArray[i*3 + 1] = mat.TexDiffuse.width;
-			textureIndexArray[i*3 + 2] = mat.TexDiffuse.height;
+			textureDiffuseIndexArray[i * 3] = currentTexPtr;
+			textureDiffuseIndexArray[i * 3 + 1] = mat.TexDiffuse.width;
+			textureDiffuseIndexArray[i * 3 + 2] = mat.TexDiffuse.height;
 
-			currentTexPtr += texSize;
+			currentTexPtr += texSizeDiffuse;
+		}
+		if (!mat.TexSpecular.data.empty()) {
+			int texSizeSpecular = mat.TexSpecular.width * mat.TexSpecular.height;
+			for (int d = 0; d < texSizeSpecular; d++) {
+				textureArray.push_back(mat.TexSpecular.data[d].r);
+				textureArray.push_back(mat.TexSpecular.data[d].g);
+				textureArray.push_back(mat.TexSpecular.data[d].b);
+				textureArray.push_back(mat.TexSpecular.data[d].a);
+			}
+			textureSpecularIndexArray[i * 3] = currentTexPtr;
+			textureSpecularIndexArray[i * 3 + 1] = mat.TexSpecular.width;
+			textureSpecularIndexArray[i * 3 + 2] = mat.TexSpecular.height;
+
+			currentTexPtr += texSizeSpecular;
 		}
 	}
 
-	if (textureDiffuseArray.empty())
-		textureDiffuseArray.push_back(-1.0);
+	if (textureArray.empty())
+		textureArray.push_back(-1.0);
 
 	m_buf_materials = m_kp_manager.tensor(materialArray);
-	m_buf_textures = m_kp_manager.tensor(textureDiffuseArray);
-	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureIndexArray);
+	m_buf_textures = m_kp_manager.tensor(textureArray);
+	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureDiffuseIndexArray);
+	m_buf_textureSpecularIndices = m_kp_manager.tensorT<int>(textureSpecularIndexArray);
 
 
 
 
 	// Upload buffers to GPU
-	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ 
-		m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount, 
+	m_kp_manager.sequence()->eval<kp::OpSyncDevice>({
+		m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount,
 		//m_buf_tris_opt, m_buf_tris_normals, 
-		m_buf_tris_opt, 
+		m_buf_tris_opt,
 		m_buf_tris_mats, m_buf_materials,
-		m_buf_textures, m_buf_textureDiffuseIndices,
+		m_buf_textures, 
+		m_buf_textureDiffuseIndices, m_buf_textureSpecularIndices,
 		m_buf_hdri, m_buf_hdri_cdf });
 }
 
@@ -159,10 +176,11 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 		m_kp_buffers = {
 			m_buf_raydirs,
 			m_buf_nodes_BBoxes, m_buf_nodes_idx_tricount,
-			m_buf_tris_opt, 
+			m_buf_tris_opt,
 			//m_buf_tris_opt, m_buf_tris_normals, 
 			m_buf_tris_mats, m_buf_materials,
-			m_buf_textures, m_buf_textureDiffuseIndices,
+			m_buf_textures, 
+			m_buf_textureDiffuseIndices, m_buf_textureSpecularIndices,
 			m_buf_hdri, m_buf_hdri_cdf,
 			m_buf_imgAccu, m_buf_imgOut
 		};
@@ -178,7 +196,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 
 		m_rayDirsDirty = true;
 	}
-	
+
 	return didResize;
 }
 
