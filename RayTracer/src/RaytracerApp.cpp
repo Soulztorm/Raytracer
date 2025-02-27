@@ -26,8 +26,6 @@
 
 
 using namespace Walnut;
-#define SCENE 1
-
 
 template <typename T, typename Total, size_t N>
 class Moving_Average
@@ -68,7 +66,7 @@ bool tryLoadTexture(Texture& texture, const std::string& texName, const std::str
 	int w, h, n;
 	unsigned char* data = stbi_load(dp.c_str(), &w, &h, &n, 4);
 
-	if (!data)
+	if (!data || w <= 0 || h <= 0)
 		return false;
 
 	texture.width = w;
@@ -96,8 +94,8 @@ public:
 
 		LoadSettings();
 
-		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
-		//m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+		m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/rogland_clear_night_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/qwantani_sunrise_4k.exr");
 
@@ -105,13 +103,21 @@ public:
 		float objScale = 1.f;
 		fs::path objPath;
 
+#define SCENE 3
+
 #if SCENE == 0
-		objPath = ("../Assets/sponza/sponza.obj");
-		objScale = 0.1f;
+		//objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
+		objPath = ("../Assets/cornell-box/CornellBox-Sphere.obj");
 #elif SCENE == 1
 		objPath = ("../Assets/fireplace_room/fireplace_room.obj");
-#else
-		objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
+#elif SCENE == 2
+		objPath = ("../Assets/bistro/bistro.obj");
+		objScale = 1.f;
+#elif SCENE == 3
+		objPath = ("../Assets/sponza/sponza.obj");
+		objScale = 0.1f;
+#elif SCENE == 4
+		objPath = ("../Assets/redspheres.obj");
 #endif
 
 		//m_camera.SetSpeed(1.0f * objScale);
@@ -133,29 +139,19 @@ public:
 			for each (const auto & _mat in materials)
 			{
 				Material& mat = m_scene.materials.emplace_back();
-
-				mat.Albedo = 
-					glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]);
-					//glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]));
-				mat.Emission = glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
-				mat.Metallic = _mat.metallic;
-				mat.Roughness = (1000.0f - _mat.shininess) / 1000.0f;
-				mat.IOR = _mat.ior;
-
-				//if (mat.Emission.r == 0 && mat.Emission.g == 0 && mat.Emission.b == 0 && _mat.illum == 3)
-				//	mat.Transparency = 1.0f - _mat.transmittance[0];
-
 				mat.Name = _mat.name;
-
-				if (_mat.name == "Material__25")
-					mat.Metallic = 1.0;
-
+				mat.Albedo = glm::vec3(_mat.diffuse[0], _mat.diffuse[1], _mat.diffuse[2]);
+				mat.Emission = glm::vec3(_mat.emission[0], _mat.emission[1], _mat.emission[2]);
+				mat.Metallic = glm::clamp(_mat.metallic, 0.0f, 1.0f);
+				mat.Specular = glm::vec3(_mat.specular[0], _mat.specular[1], _mat.specular[2]);
+				mat.Roughness = glm::clamp((1.0f - (_mat.shininess / 1000.0f)) , 0.0f, 1.0f);
+				mat.IOR = _mat.ior;
+				
 				// Diffuse Texture
 				tryLoadTexture(mat.TexDiffuse, _mat.diffuse_texname, objPath.parent_path().string());
 				// Specular Texture
 				tryLoadTexture(mat.TexSpecular, _mat.specular_texname, objPath.parent_path().string());
 			}
-
 
 			
 			// Loop over shapes
@@ -300,19 +296,26 @@ public:
 		for (size_t i = 0; i < m_scene.materials.size(); i++)
 		{
 			Material& mat = m_scene.materials[i];
+			std::string materialString = !mat.Name.empty() ? mat.Name : "Material %i";
 
 			ImGui::PushID((int)i);
-			if (!mat.Name.empty())
-				ImGui::Text(mat.Name.c_str());
-			else
-				ImGui::Text("Material %i", i);
-
-			ImGui::ColorEdit3("Albedo", glm::value_ptr(mat.Albedo));
-			ImGui::DragFloat3("Emission", glm::value_ptr(mat.Emission), 0.1f, 0.0f, 200.0f);
-			ImGui::DragFloat("Roughness", &mat.Roughness, 0.01f, 0.0f, 1.0f);
+			if (ImGui::CollapsingHeader(materialString.c_str())) {
+				ImGui::ColorEdit3("Albedo", glm::value_ptr(mat.Albedo));
+				ImGui::ColorEdit3("Specular", glm::value_ptr(mat.Specular));
+				ImGui::DragFloat3("Emission", glm::value_ptr(mat.Emission), 0.1f, 0.0f, 200.0f);
+				ImGui::DragFloat("Metallic", &mat.Metallic, 0.01f, 0.0f, 1.0f);
+				ImGui::DragFloat("Roughness", &mat.Roughness, 0.01f, 0.0f, 1.0f);
+			}
 			ImGui::PopID();
 			ImGui::Separator();
-			ImGui::Separator();
+
+
+			//if (!mat.Name.empty())
+			//	ImGui::Text(mat.Name.c_str());
+			//else
+			//	ImGui::Text("Material %i", i);
+
+
 		}
 
 		ImGui::End();

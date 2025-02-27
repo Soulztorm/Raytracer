@@ -2,6 +2,7 @@
 
 #include <filesystem>
 
+
 std::vector<uint32_t> RendererGPU::CompileShader(const std::string& filepath)
 {
 	std::string filepath_out = (filepath + ".spv");
@@ -14,6 +15,90 @@ std::vector<uint32_t> RendererGPU::CompileShader(const std::string& filepath)
 	buffer.insert(buffer.begin(), std::istreambuf_iterator<char>(fileStream), {});
 	return { (uint32_t*)buffer.data(), (uint32_t*)(buffer.data() + buffer.size()) };
 }
+
+
+void RendererGPU::CreateMaterialBuffer()
+{
+	std::vector<float> materialArray(m_activeScene->materials.size() * 16);
+	float* matarrayPtr = &materialArray[0];
+
+	if (m_buf_materials && m_buf_materials->data())
+		matarrayPtr = (float*)m_buf_materials->data();
+
+	for (int i = 0; i < m_activeScene->materials.size(); i++) {
+		const Material& mat = m_activeScene->materials[i];
+		matarrayPtr[i * 16] = mat.Albedo.r;
+		matarrayPtr[i * 16 + 1] = mat.Albedo.g;
+		matarrayPtr[i * 16 + 2] = mat.Albedo.b;
+		matarrayPtr[i * 16 + 3] = 1.0;
+		matarrayPtr[i * 16 + 4] = mat.Emission.r;
+		matarrayPtr[i * 16 + 5] = mat.Emission.g;
+		matarrayPtr[i * 16 + 6] = mat.Emission.b;
+		matarrayPtr[i * 16 + 7] = 1.0;
+		matarrayPtr[i * 16 + 8] = mat.Specular.r;
+		matarrayPtr[i * 16 + 9] = mat.Specular.g;
+		matarrayPtr[i * 16 + 10] = mat.Specular.b;
+		matarrayPtr[i * 16 + 11] = 1.0;
+		matarrayPtr[i * 16 + 12] = mat.Metallic;
+		matarrayPtr[i * 16 + 13] = mat.Roughness;
+		matarrayPtr[i * 16 + 14] = mat.Transparency;
+		matarrayPtr[i * 16 + 15] = mat.IOR;
+	}
+	if (m_buf_materials && m_buf_materials->data()) {
+		m_kp_manager.sequence()->eval<kp::OpSyncDevice>({ m_buf_materials });
+	}
+	else
+		m_buf_materials = m_kp_manager.tensor(materialArray);
+}
+
+void RendererGPU::CreateTextureBuffers()
+{
+	std::vector<float> textureArray;
+	std::vector<int> textureDiffuseIndexArray(m_activeScene->materials.size() * 3, -1);
+	std::vector<int> textureSpecularIndexArray(m_activeScene->materials.size() * 3, -1);
+
+	int currentTexPtr = 0;
+	for (int i = 0; i < m_activeScene->materials.size(); i++) {
+		const Material& mat = m_activeScene->materials[i];
+
+		if (!mat.TexDiffuse.data.empty()) {
+			int texSizeDiffuse = mat.TexDiffuse.width * mat.TexDiffuse.height;
+			for (int d = 0; d < texSizeDiffuse; d++) {
+				textureArray.push_back(mat.TexDiffuse.data[d].r);
+				textureArray.push_back(mat.TexDiffuse.data[d].g);
+				textureArray.push_back(mat.TexDiffuse.data[d].b);
+				textureArray.push_back(mat.TexDiffuse.data[d].a);
+			}
+			textureDiffuseIndexArray[i * 3] = currentTexPtr;
+			textureDiffuseIndexArray[i * 3 + 1] = mat.TexDiffuse.width;
+			textureDiffuseIndexArray[i * 3 + 2] = mat.TexDiffuse.height;
+
+			currentTexPtr += texSizeDiffuse;
+		}
+		if (!mat.TexSpecular.data.empty()) {
+			int texSizeSpecular = mat.TexSpecular.width * mat.TexSpecular.height;
+			for (int d = 0; d < texSizeSpecular; d++) {
+				textureArray.push_back(mat.TexSpecular.data[d].r);
+				textureArray.push_back(mat.TexSpecular.data[d].g);
+				textureArray.push_back(mat.TexSpecular.data[d].b);
+				textureArray.push_back(mat.TexSpecular.data[d].a);
+			}
+			textureSpecularIndexArray[i * 3] = currentTexPtr;
+			textureSpecularIndexArray[i * 3 + 1] = mat.TexSpecular.width;
+			textureSpecularIndexArray[i * 3 + 2] = mat.TexSpecular.height;
+
+			currentTexPtr += texSizeSpecular;
+		}
+	}
+
+	if (textureArray.empty())
+		textureArray.push_back(-1.0);
+
+	m_buf_textures = m_kp_manager.tensor(textureArray);
+	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureDiffuseIndexArray);
+	m_buf_textureSpecularIndices = m_kp_manager.tensorT<int>(textureSpecularIndexArray);
+}
+
 
 void RendererGPU::FillBuffers() {
 	// Fill Node buffer
@@ -67,66 +152,10 @@ void RendererGPU::FillBuffers() {
 
 
 	// Materials
-	std::vector<float> materialArray(m_activeScene->materials.size() * 12);
-	std::vector<float> textureArray;
-	std::vector<int> textureDiffuseIndexArray(m_activeScene->materials.size() * 3, -1);
-	std::vector<int> textureSpecularIndexArray(m_activeScene->materials.size() * 3, -1);
+	CreateMaterialBuffer();
 
-	int currentTexPtr = 0;
-	for (int i = 0; i < m_activeScene->materials.size(); i++) {
-		const Material& mat = m_activeScene->materials[i];
-		materialArray[i * 12] = mat.Albedo.r;
-		materialArray[i * 12 + 1] = mat.Albedo.g;
-		materialArray[i * 12 + 2] = mat.Albedo.b;
-		materialArray[i * 12 + 3] = 1.0;
-		materialArray[i * 12 + 4] = mat.Emission.r;
-		materialArray[i * 12 + 5] = mat.Emission.g;
-		materialArray[i * 12 + 6] = mat.Emission.b;
-		materialArray[i * 12 + 7] = 1.0;
-		materialArray[i * 12 + 8] = mat.Metallic;
-		materialArray[i * 12 + 9] = mat.Roughness;
-		materialArray[i * 12 + 10] = mat.Transparency;
-		materialArray[i * 12 + 11] = mat.IOR;
-
-		// Textures
-		if (!mat.TexDiffuse.data.empty()) {
-			int texSizeDiffuse = mat.TexDiffuse.width * mat.TexDiffuse.height;
-			for (int d = 0; d < texSizeDiffuse; d++) {
-				textureArray.push_back(mat.TexDiffuse.data[d].r);
-				textureArray.push_back(mat.TexDiffuse.data[d].g);
-				textureArray.push_back(mat.TexDiffuse.data[d].b);
-				textureArray.push_back(mat.TexDiffuse.data[d].a);
-			}
-			textureDiffuseIndexArray[i * 3] = currentTexPtr;
-			textureDiffuseIndexArray[i * 3 + 1] = mat.TexDiffuse.width;
-			textureDiffuseIndexArray[i * 3 + 2] = mat.TexDiffuse.height;
-
-			currentTexPtr += texSizeDiffuse;
-		}
-		if (!mat.TexSpecular.data.empty()) {
-			int texSizeSpecular = mat.TexSpecular.width * mat.TexSpecular.height;
-			for (int d = 0; d < texSizeSpecular; d++) {
-				textureArray.push_back(mat.TexSpecular.data[d].r);
-				textureArray.push_back(mat.TexSpecular.data[d].g);
-				textureArray.push_back(mat.TexSpecular.data[d].b);
-				textureArray.push_back(mat.TexSpecular.data[d].a);
-			}
-			textureSpecularIndexArray[i * 3] = currentTexPtr;
-			textureSpecularIndexArray[i * 3 + 1] = mat.TexSpecular.width;
-			textureSpecularIndexArray[i * 3 + 2] = mat.TexSpecular.height;
-
-			currentTexPtr += texSizeSpecular;
-		}
-	}
-
-	if (textureArray.empty())
-		textureArray.push_back(-1.0);
-
-	m_buf_materials = m_kp_manager.tensor(materialArray);
-	m_buf_textures = m_kp_manager.tensor(textureArray);
-	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureDiffuseIndexArray);
-	m_buf_textureSpecularIndices = m_kp_manager.tensorT<int>(textureSpecularIndexArray);
-
+	// Textures
+	CreateTextureBuffers();
 
 
 
@@ -221,6 +250,9 @@ bool RendererGPU::OnCameraMoved()
 
 void RendererGPU::RenderGPU(Camera* camera)
 {
+	if (!m_settings.Accumulate)
+		ResetFrameIndex();
+
 	if (m_rayDirsDirty) {
 		std::vector<float> rayDirArray(m_activeCamera->GetRayDirections().size() * 3);
 		for (int r = 0; r < m_activeCamera->GetRayDirections().size(); r++) {
@@ -232,7 +264,9 @@ void RendererGPU::RenderGPU(Camera* camera)
 
 		m_rayDirsDirty = false;
 	}
-
+	if (m_frameindex % 20 == 1) {
+		CreateMaterialBuffer();
+	}
 	// Set the camera stuff
 	m_kp_pushConsts[0].camPos = glm::vec4(camera->GetPosition(), 0);
 	m_kp_pushConsts[0].camRight = glm::vec4(camera->GetRight(), 0);

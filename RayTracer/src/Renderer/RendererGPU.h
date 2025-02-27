@@ -35,6 +35,9 @@ public:
     virtual bool OnCameraMoved() override;
 
 private:
+    void CreateMaterialBuffer();
+    void CreateTextureBuffers();
+
     std::vector<uint32_t> CompileShader(const std::string& filepath);
     std::vector<uint32_t> m_kp_shader;
 

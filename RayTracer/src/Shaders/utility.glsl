@@ -112,7 +112,7 @@ vec4 GetAlbedoColor(in Material mat, in HitInfo hitInfo){
 
 
 vec4 GetSpecularColor(in Material mat, in HitInfo hitInfo){
-    vec4 specularColor = vec4(1.0 - mat.Roughness);
+    vec4 specularColor = mat.Specular;
     int texIndex = textures_specularIdx[hitInfo.materialIndex*3];
     if (texIndex >= 0){
         int texWidth = textures_specularIdx[hitInfo.materialIndex*3 + 1];
