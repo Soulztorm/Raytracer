@@ -257,6 +257,17 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
     return vec3(0.0); // No contribution if occluded
 }
 
+// Debug: Fresnel Reflection vs. Refraction Visualization
+vec3 DebugFresnelReflection(vec3 V, vec3 N, float IOR, vec3 Ks) {
+    float cosTheta = dot(-V, N);
+    vec3 F0 = mix(vec3(0.04), Ks, 1.0); // Use Ks for metals, 0.04 for dielectrics
+    vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+
+    // Color based on reflection vs. refraction
+    //return vec3(fresnelTerm.r, 1.0 - fresnelTerm.g, fresnelTerm.b);
+    return vec3(1.0 - fresnelTerm.r, fresnelTerm.g, 0);
+}
+
 
 // ================================================================================================================
 // ================================================================================================================
@@ -288,12 +299,13 @@ void main() {
 
     Ray ray;
 
+	vec2 lookatJitter = RandomInCircle(randomSeed) * (32.0 / (2.0 * image_height));
+
     // Defocus ray origin
 	vec2 camJitter = RandomInCircle(randomSeed) * (camdata.dofStrength / max(image_width, image_height));
-	ray.Origin = camdata.camPos.xyz + camdata.camRight.xyz * camJitter.x + camdata.camUp.xyz * camJitter.y;
+	ray.Origin = camdata.camPos.xyz + camdata.camRight.xyz * (camJitter.x + lookatJitter.x) + camdata.camUp.xyz * (camJitter.y  + lookatJitter.y);
 
 	// Defocus at viewpoint, basically anti aliasing
-	vec2 lookatJitter = RandomInCircle(randomSeed) * (2.0 / max(image_width, image_height));
 	vec3 lookatVector = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
 	vec3 lookatPosition = lookatVector * camdata.dofDist + camdata.camPos.xyz + camdata.camRight.xyz * lookatJitter.x + camdata.camUp.xyz * lookatJitter.y;
 	ray.Direction = normalize(lookatPosition - ray.Origin);
@@ -313,18 +325,23 @@ void main() {
                 break;
             }
 
+            // Get the actual material we hit
             Material mat = GetMaterial(hitInfo.materialIndex);
-
 
             // Get the color for this material, either diffuse texture lookup or material albedo
             vec4 albedoColor = GetAlbedoColor(mat, hitInfo);
             vec4 specularColor = GetSpecularColor(mat, hitInfo);
 
+            //finalColor = DebugFresnelReflection(ray.Direction, hitInfo.normal, mat.IOR, specularColor.rgb);
+            //break;
+
+            bool hitInside = dot(-ray.Direction, hitInfo.normal) < 0.0;
+
            // finalColor = specularColor.rgb;
           //  break;
 
             // Alpha clipping, continue ray on other side (Alpha transparency in textures)
-            if (albedoColor.a < 0.9){
+            if (hitInside || albedoColor.a < 0.9){
                 ray.Origin = hitInfo.position + ray.Direction * FLT_EPSILON * 2.0;
                 continue;
             }
@@ -337,30 +354,30 @@ void main() {
           //  }
 
 
+
             // Compute Fresnel term
-            vec3 F0 = mix(vec3(0.04), albedoColor.rgb, mat.Metallic);
-            vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - dot(hitInfo.normal, -ray.Direction), 5.0);
+            vec3 F0 = mix(vec3(0.04), specularColor.rgb, (1.0 - mat.Roughness));
+            vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - clamp(dot(hitInfo.normal, -ray.Direction), 0.0, 1.0), 5.0);
 
-            float specToRough = sqrt(1.0 - specularColor.r);
-            float roughness = mix(specToRough, 1.0 , mat.Roughness);
+            //finalColor = fresnelTerm;
+            //break;
 
-            float alpha = roughness * roughness;
-            float reflectionFactor = 1.0 - alpha;
+            float diffuseFactor = mix(sqrt(1.0 - specularColor.r), 1.0, mat.Roughness);
 
-
+            vec3 reflectionDir = reflect(ray.Direction, hitInfo.normal);
+            vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
+            //ray.Direction = mix(reflectionDir, diffuseRayDir, diffuseFactor);
+            ray.Direction = mix(reflectionDir, diffuseRayDir, mix(1.0 - fresnelTerm.r, 1.0, mat.Roughness));
 
             // Reflection ray
-            if (RandomValue(randomSeed) > alpha){
-                vec3 reflectionDir = reflect(ray.Direction, hitInfo.normal);
+           // if (RandomValue(randomSeed) > alpha){
                // pdfContribution = (1.0 - alpha) * PI1; // Probability of reflection, dependant on roughness
-                ray.Direction = reflectionDir;
-            }
+                //ray.Direction = reflectionDir;
+           // }
             // Diffusion ray
-            else{
-                vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
+            //else{
                 //pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal); // Probability of this chosen direction of cosine weighted hemisphere
-                ray.Direction = diffuseRayDir;
-            }
+            //}
 
 
             // // Compute probability of sampling reflection vs. diffuse
@@ -373,14 +390,14 @@ void main() {
 
 
             // New ray origin offset from last hit position along surface normal
-            ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON;
+            ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON * 2.0;
 
 
             // Step 1: Accumulate emitted light first (Self-emission does not depend on throughput)
             finalColor += mat.Emission.rgb * contribution;
 
             // Step 2: Apply Fresnel-based contribution scaling (correct diffuse-metallic mix)
-            contribution *= mix(albedoColor.rgb, max(vec3(0), fresnelTerm), mat.Metallic); 
+            contribution *= mix(albedoColor.rgb, vec3(0.96), mat.Metallic); 
 
             // Step 3: Accumulate direct light contribution
             finalColor += directLight * contribution;
