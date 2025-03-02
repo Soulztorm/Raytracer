@@ -100,41 +100,15 @@ bool RefractionRay(in vec3 ray_dir_in, in vec3 normal, in vec3 intersection_poin
 	}
 }
 
-float FresnelReflectAmount (float n1, float n2, vec3 normal, vec3 incident)
-{
-        // Schlick aproximation
-        float r0 = (n1-n2) / (n1+n2);
-        r0 *= r0;
-        float cosX = -dot(normal, incident);
-        if (n1 > n2)
-        {
-            float n = n1/n2;
-            float sinT2 = n*n*(1.0-cosX*cosX);
-            // Total internal reflection
-            if (sinT2 > 1.0)
-                return 1.0;
-            cosX = sqrt(1.0-sinT2);
-        }
-        float x = 1.0-cosX;
-        float ret = r0+(1.0-r0)*x*x*x*x*x;
- 
-        // adjust reflect multiplier for object reflectivity
-        ret = (0.5 + (1.0-0.5) * ret);
-        return ret;
-}
 
-
-
-vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
+vec4 sampleDirectLight(HitInfo hitInfo, out vec3 lightDir, inout uint randomSeed) {
 
     // Pick a random hdri direction, weighted by luminance. High intensity directions are chosen more often
     int cdfIndex = binarySearchCDF(RandomValue(randomSeed));
     // Convert from chosen pixel index in hdri to uv coordinates
     vec2 hdriUV = vec2((cdfIndex % int(hdri_width)) / hdri_width, (cdfIndex / int(hdri_width)) / hdri_height); 
     
-
-    vec3 lightDir = RotateSkyWorldDirInv(hdrPixelToWorldDirection(hdriUV));
-
+    lightDir = RotateSkyWorldDirInv(hdrPixelToWorldDirection(hdriUV));
 
     Ray sunTestRay;
     sunTestRay.Origin = hitInfo.position + lightDir * FLT_EPSILON * 10.0;
@@ -146,25 +120,10 @@ vec3 sampleDirectLight(HitInfo hitInfo, inout uint randomSeed) {
     // Check if light is visible (shadow ray)
     if (sunVisible) {
         float probability = cdfIndex == 0 ? hdri_cdf[0] :  hdri_cdf[cdfIndex] - hdri_cdf[cdfIndex - 1]; 
-
-        float intensity = max(dot(hitInfo.normal, lightDir), 0.0);
-
-        vec3 sunLight = SampleHDRIFromDirection(lightDir).rgb * intensity * (1.0 - probability);
-        return sunLight;
+        return vec4(SampleHDRIFromDirection(lightDir).rgb, probability);
     } 
 
-    return vec3(0.0); // No contribution if occluded
-}
-
-// Debug: Fresnel Reflection vs. Refraction Visualization
-vec3 DebugFresnelReflection(vec3 V, vec3 N, float IOR, vec3 Ks) {
-    float cosTheta = dot(-V, N);
-    vec3 F0 = mix(vec3(0.04), Ks, 1.0); // Use Ks for metals, 0.04 for dielectrics
-    vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-
-    // Color based on reflection vs. refraction
-    //return vec3(fresnelTerm.r, 1.0 - fresnelTerm.g, fresnelTerm.b);
-    return vec3(1.0 - fresnelTerm.r, fresnelTerm.g, 0);
+    return vec4(0.0); // No throughput if occluded
 }
 
 
@@ -177,40 +136,33 @@ void main() {
     uint randomSeed = camdata.frameindex * uint(image_width * image_height) + gl_GlobalInvocationID.x;
     vec2 uv = vec2((gl_GlobalInvocationID.x % uint(image_width)) / image_width, (gl_GlobalInvocationID.x / image_width) / image_height); 
     vec2 uvCentered = uv * 2.f - 1.f;
-
-
     skyDir_cl = cos((2.0 * camdata.skyY - 1.0) * 2.0 * PI);
     skyDir_sl = sin((2.0 * camdata.skyY - 1.0) * 2.0 * PI);
-
     skyDirInv_cl = cos(-(2.0 * camdata.skyY - 1.0) * 2.0 * PI);
     skyDirInv_sl = sin(-(2.0 * camdata.skyY - 1.0) * 2.0 * PI);
 
 
-
-    vec3 finalColor = vec3(0.0); 
-
-    vec3 directLight = vec3(0.0);
-    
-    vec3 contribution = vec3(1.0);
-    float pdfContribution = 1.0f;
-
-
-
+    // Initial rays from camera with DoF
     Ray ray;
-
-	vec2 lookatJitter = RandomInCircle(randomSeed) * (32.0 / (2.0 * image_height));
-
     // Defocus ray origin
-	vec2 camJitter = RandomInCircle(randomSeed) * (camdata.dofStrength / max(image_width, image_height));
+	vec2 lookatJitter = RandomInCircle(randomSeed) * (32.0 / (2.0 * image_height));
+    vec2 camJitter = RandomInCircle(randomSeed) * (camdata.dofStrength / max(image_width, image_height));
 	ray.Origin = camdata.camPos.xyz + camdata.camRight.xyz * (camJitter.x + lookatJitter.x) + camdata.camUp.xyz * (camJitter.y  + lookatJitter.y);
-
 	// Defocus at viewpoint, basically anti aliasing
 	vec3 lookatVector = vec3(raydirs[gl_GlobalInvocationID.x * 3], raydirs[gl_GlobalInvocationID.x * 3 + 1], raydirs[gl_GlobalInvocationID.x * 3 + 2]);
 	vec3 lookatPosition = lookatVector * camdata.dofDist + camdata.camPos.xyz + camdata.camRight.xyz * lookatJitter.x + camdata.camUp.xyz * lookatJitter.y;
 	ray.Direction = normalize(lookatPosition - ray.Origin);
 
 
-    float lastIOR = 1.0;
+    
+    vec3 accumulatedColor = vec3(0.0); 
+    vec3 throughput = vec3(1.0);
+    
+    vec3 directLight = vec3(0.0);
+    float pdfContribution = 1.0f;
+
+
+
 
     if (camdata.rendermode == 0){
         for (int i = 0; i < camdata.bounces; i++){
@@ -220,103 +172,72 @@ void main() {
             // No hit
             if (hitInfo.materialIndex < 0){
                 vec3 skyColor = SampleHDRIFromDirection(ray.Direction).rgb;
-                finalColor += contribution * skyColor;
+                accumulatedColor += throughput * skyColor;
                 break;
             }
 
             // Get the actual material we hit
-            Material mat = GetMaterial(hitInfo.materialIndex);
-
-            // Get the color for this material, either diffuse texture lookup or material albedo
-            vec4 albedoColor = GetAlbedoColor(mat, hitInfo);
-            vec4 specularColor = GetSpecularColor(mat, hitInfo);
-
-            //finalColor = DebugFresnelReflection(ray.Direction, hitInfo.normal, mat.IOR, specularColor.rgb);
-            //break;
-
-            bool hitInside = dot(-ray.Direction, hitInfo.normal) < 0.0;
-
-           // finalColor = specularColor.rgb;
-          //  break;
+            Material mat = GetMaterial(hitInfo.materialIndex);   
+            mat.Albedo = GetAlbedoColor(mat, hitInfo); // Get the color for this material, either diffuse texture lookup or material albedo
 
             // Alpha clipping, continue ray on other side (Alpha transparency in textures)
-            if (hitInside || albedoColor.a < 0.9){
+            // bool hitInside = dot(-ray.Direction, hitInfo.normal) < 0.0;
+            if ( mat.Albedo.a < 0.9){
                 ray.Origin = hitInfo.position + ray.Direction * FLT_EPSILON * 2.0;
                 continue;
             }
 
+            mat.Specular = GetSpecularColor(mat, hitInfo); // Get the specular color for this material, either specular texture or material Specularity
+            mat.Roughness = max(1e-4, (1.0 - mat.Specular.r) * mat.Roughness);
+
+            // Step 1: Accumulate emitted light first (Self-emission does not depend on throughput)
+            accumulatedColor += mat.Emission.rgb * throughput;
 
             // Direct light
-            vec3 directLight = vec3(0);
-            //if (RandomValue(randomSeed) < 0.5f){
-                directLight = sampleDirectLight(hitInfo, randomSeed);          
-          //  }
+            vec3 lightDir;
+            vec4 directLight = sampleDirectLight(hitInfo, lightDir, randomSeed);  
+
+            // If the chosen direction actually saw the environment map (Not in shadow)
+            if (directLight.w > 0.0){
+                // Compute the cosine term between the surface normal and the sampled direction.
+                float cosEnv = max(dot(hitInfo.normal, lightDir), 0.0);
+
+                // Evaluate the BSDF for the direct light sample.
+                vec3 brdfEval = evaluateBRDF(ray.Direction, hitInfo.normal, lightDir, mat);
+
+                // Also, evaluate the BSDF's PDF for the same direction.
+                float bsdfPdf = evaluateBSDFPdf(ray.Direction, hitInfo.normal, lightDir, mat);
+
+                // Compute the MIS weight (using a balance heuristic).
+                float misWeight =  (directLight.w + bsdfPdf + 1e-4);
+
+                // Add the direct light contribution.
+                accumulatedColor += throughput *  directLight.rgb * brdfEval * cosEnv / misWeight;
+            }
 
 
 
-            // Compute Fresnel term
-            vec3 F0 = mix(vec3(0.04), specularColor.rgb, (1.0 - mat.Roughness));
-            vec3 fresnelTerm = F0 + (1.0 - F0) * pow(1.0 - clamp(dot(hitInfo.normal, -ray.Direction), 0.0, 1.0), 5.0);
+            // Sample the BRDF to get the next ray direction.
+            BRDFSample brdfSample = sampleBRDF(ray.Direction, hitInfo.normal, mat, randomSeed);
+            float cosine = max(dot(brdfSample.direction, hitInfo.normal ), 0.0);
 
-            //finalColor = fresnelTerm;
-            //break;
-
-            float diffuseFactor = mix(sqrt(1.0 - specularColor.r), 1.0, mat.Roughness);
-
-            vec3 reflectionDir = reflect(ray.Direction, hitInfo.normal);
-            vec3 diffuseRayDir = RandomCosineInHemisphere(hitInfo.normal, randomSeed);
-            //ray.Direction = mix(reflectionDir, diffuseRayDir, diffuseFactor);
-            ray.Direction = mix(reflectionDir, diffuseRayDir, mix(1.0 - fresnelTerm.r, 1.0, mat.Roughness));
-
-            // Reflection ray
-           // if (RandomValue(randomSeed) > alpha){
-               // pdfContribution = (1.0 - alpha) * PI1; // Probability of reflection, dependant on roughness
-                //ray.Direction = reflectionDir;
-           // }
-            // Diffusion ray
-            //else{
-                //pdfContribution = pdfBSDF(diffuseRayDir, hitInfo.normal); // Probability of this chosen direction of cosine weighted hemisphere
-            //}
-
-
-            // // Compute probability of sampling reflection vs. diffuse
-            // float p_specular = reflectionFactor * PI1;
-            // float p_diffuse = pdfBSDF(ray.Direction, hitInfo.normal);
-            // pdfContribution = mix(p_diffuse, p_specular, fresnelTerm.r);
-
-            // // Less rough = higher clamp, More rough = lower clamp
-            // pdfContribution = max(pdfContribution, 1.0); 
-
+            // Update the throughput with the BRDF value, cosine term, and pdf.
+            throughput *= brdfSample.value * cosine / brdfSample.pdf;
 
             // New ray origin offset from last hit position along surface normal
             ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON * 2.0;
-
-
-            // Step 1: Accumulate emitted light first (Self-emission does not depend on throughput)
-            finalColor += mat.Emission.rgb * contribution;
-
-            // Step 2: Apply Fresnel-based contribution scaling (correct diffuse-metallic mix)
-            contribution *= mix(albedoColor.rgb, vec3(0.96), mat.Metallic); 
-
-            // Step 3: Accumulate direct light contribution
-            finalColor += directLight * contribution;
-
-            // Step 4: Apply PDF weighting (to correctly balance probability of sampling this path)
-            //contribution /= pdfContribution;  // Prevent overly strong indirect light
-
-            // Step 5: Reduce indirect contribution per bounce to maintain contrast
-            //contribution *= 1.0 / (1.0 + float(i) * 0.2);
+            ray.Direction = brdfSample.direction;
 
 
             // Russian Roulette
             // As the throughput gets smaller, the ray is more likely to get terminated early.
             // Survivors have their value boosted to make up for fewer samples being in the average.     
-            float p = max(contribution.r, max(contribution.g, contribution.b));
+            float p = max(throughput.r, max(throughput.g, throughput.b));
             if (RandomValue(randomSeed) > p)
                 break;
 
             // Add the energy we 'lose' by randomly terminating paths
-            contribution *= 1.0f / p;
+            throughput *= 1.0f / p;
         }
     }
     else{
@@ -324,30 +245,37 @@ void main() {
 
         // No hit
         if (hitInfo.materialIndex < 0){
-            finalColor = SampleHDRIFromDirection(ray.Direction).rgb;
+            accumulatedColor = SampleHDRIFromDirection(ray.Direction).rgb;
         }
         else{
             // Get the color for this material, either diffuse texture lookup or material albedo
             Material mat = GetMaterial(hitInfo.materialIndex);
-            finalColor = GetAlbedoColor(mat, hitInfo).rgb;
+            accumulatedColor = GetAlbedoColor(mat, hitInfo).rgb;
         }
     }
     
     
+
+
+    accumulatedColor = max(vec3(0.0), accumulatedColor);
+
+
+
+    // Update accumulation buffer and output image
     vec4 oldColor = img_accu[gl_GlobalInvocationID.x];
-    vec4 newColor = oldColor + ((vec4(finalColor, 1.0) - oldColor) / camdata.frameindex); 
+    vec4 newColor = oldColor + ((vec4(accumulatedColor, 1.0) - oldColor) / camdata.frameindex); 
     img_accu[gl_GlobalInvocationID.x] = newColor;
 
     if (camdata.frameindex % 20 == 1)
     {
         // Color corrected image
         if (camdata.useACE == 1){
-            finalColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
+            accumulatedColor = LinearToSRGB(ACESFilm(camdata.exposure * newColor.rgb));
         }
         else{
-            finalColor = camdata.exposure * newColor.rgb;
+            accumulatedColor = camdata.exposure * newColor.rgb;
         }
 
-        img_out[gl_GlobalInvocationID.x] = vec4(finalColor, 1.0);
+        img_out[gl_GlobalInvocationID.x] = vec4(accumulatedColor, 1.0);
     }
 }
