@@ -43,6 +43,8 @@ static VkDebugReportCallbackEXT g_DebugReport = VK_NULL_HANDLE;
 static VkPipelineCache          g_PipelineCache = VK_NULL_HANDLE;
 static VkDescriptorPool         g_DescriptorPool = VK_NULL_HANDLE;
 
+static VkCommandPool			g_ComputeCommandPool = VK_NULL_HANDLE;
+
 static ImGui_ImplVulkanH_Window g_MainWindowData;
 static int                      g_MinImageCount = 2;
 static bool                     g_SwapChainRebuild = false;
@@ -159,12 +161,12 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		vkGetPhysicalDeviceQueueFamilyProperties(g_PhysicalDevice, &count, NULL);
 		VkQueueFamilyProperties* queues = (VkQueueFamilyProperties*)malloc(sizeof(VkQueueFamilyProperties) * count);
 		vkGetPhysicalDeviceQueueFamilyProperties(g_PhysicalDevice, &count, queues);
-		for (uint32_t i = 0; i < count; i++)
-			if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-			{
+		for (uint32_t i = 0; i < count; i++) {
+			if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && queues[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
 				g_QueueFamily = i;
 				break;
 			}
+		}
 		free(queues);
 		IM_ASSERT(g_QueueFamily != (uint32_t)-1);
 	}
@@ -215,6 +217,16 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		err = vkCreateDescriptorPool(g_Device, &pool_info, g_Allocator, &g_DescriptorPool);
 		check_vk_result(err);
 	}
+
+	VkCommandPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.queueFamilyIndex = g_QueueFamily; // Must match compute queue family
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+	if (vkCreateCommandPool(g_Device, &poolInfo, nullptr, &g_ComputeCommandPool) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create command pool!");
+	}
+
 }
 
 // All the ImGui_ImplVulkanH_XXX structures/functions are optional helpers used by the demo.
@@ -490,7 +502,9 @@ namespace Walnut {
 		init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 		init_info.Allocator = g_Allocator;
 		init_info.CheckVkResultFn = check_vk_result;
-		ImGui_ImplVulkan_Init(&init_info, wd->RenderPass);
+		init_info.RenderPass = wd->RenderPass;
+		ImGui_ImplVulkan_Init(&init_info);
+
 
 		// Load default font
 		ImFontConfig fontConfig;
@@ -512,7 +526,7 @@ namespace Walnut {
 			err = vkBeginCommandBuffer(command_buffer, &begin_info);
 			check_vk_result(err);
 
-			ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+			//ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
 
 			VkSubmitInfo end_info = {};
 			end_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -525,7 +539,7 @@ namespace Walnut {
 
 			err = vkDeviceWaitIdle(g_Device);
 			check_vk_result(err);
-			ImGui_ImplVulkan_DestroyFontUploadObjects();
+			//ImGui_ImplVulkan_DestroyFontUploadObjects();
 		}
 	}
 
@@ -716,6 +730,21 @@ namespace Walnut {
 	VkDevice Application::GetDevice()
 	{
 		return g_Device;
+	}
+
+	VkDescriptorPool Application::GetDescriptorPool()
+	{
+		return g_DescriptorPool;
+	}
+
+	VkQueue Application::GetQueue()
+	{
+		return g_Queue;
+	}
+
+	VkCommandPool Application::GetComputeCommandPool()
+	{
+		return g_ComputeCommandPool;
 	}
 
 	VkCommandBuffer Application::GetCommandBuffer(bool begin)

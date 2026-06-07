@@ -3,8 +3,12 @@
 #include <random>
 
 #include <glm/glm.hpp>
+#include <glm/common.hpp>
 
 #include "pcg_random.hpp"
+
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 #define RNG pcg32
 
@@ -55,8 +59,14 @@ namespace Walnut {
 
 		static glm::vec3 InUnitSphere()
 		{
-			return glm::normalize(Vec3(-1.0f, 1.0f));
+			return glm::normalize(glm::vec3(Float() * 2.0f - 1.0f, Float() * 2.0f - 1.0f, Float() * 2.0f - 1.0f));
 		}
+
+		static glm::vec2 InCircle() {
+			float angle = Float() * 2.0f * M_PI;
+			return glm::vec2(std::cos(angle), std::sin(angle)) * std::sqrt(Float());
+		}
+
 	private:
 		static thread_local RNG s_RandomEngine;
 		static std::uniform_int_distribution<RNG::result_type> s_Distribution;

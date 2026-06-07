@@ -5,7 +5,7 @@ project "RayTracer"
    targetdir "bin/%{cfg.buildcfg}"
    staticruntime "off"
 
-   files { "src/**.h", "src/**.cpp", "src/**.hpp" }
+   files { "src/**.h", "src/**.cpp", "src/**.hpp", "src/**.c", "src/**.comp", "src/**.spv", "src/**.glsl" }
 
    includedirs
    {
@@ -14,10 +14,22 @@ project "RayTracer"
 
       "../Walnut/src",
 
+      "src/Data",
+      "src/Renderer",
+      "src/Utils",
+      "src/Shaders",
+
       "%{IncludeDir.VulkanSDK}",
       "%{IncludeDir.glm}",
+      "%{IncludeDir.kompute}",
    }
 
+   links {      
+      "fmt",
+      "kp_logger",
+      "kompute"
+   }
+   
    links
    {
       "Walnut"
@@ -28,6 +40,7 @@ project "RayTracer"
    objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
    filter "system:windows"
+      buildoptions { "/utf-8" }
       systemversion "latest"
       defines { "WL_PLATFORM_WINDOWS" }
       
@@ -35,13 +48,21 @@ project "RayTracer"
       defines { "WL_DEBUG" }
       runtime "Debug"
       symbols "On"
-      
+      libdirs
+      {
+         "%{LibraryDir.kompute_debug}",
+      }
+   
       filter "configurations:Release"
       defines { "WL_RELEASE" }
       runtime "Release"
       optimize "On"
       symbols "On"
-
+      libdirs
+      {
+         "%{LibraryDir.kompute_release}",
+      }
+   
    filter "configurations:Dist"
       kind "WindowedApp"
       defines { "WL_DIST" }
