@@ -76,6 +76,7 @@ private:
     // Textures
     std::shared_ptr<kp::TensorT<float>> m_buf_textures;
     std::shared_ptr<kp::TensorT<int>> m_buf_textureDiffuseIndices;
+    std::shared_ptr<kp::TensorT<int>> m_buf_textureNormalIndices;
     std::shared_ptr<kp::TensorT<int>> m_buf_textureSpecularIndices;
 
     // Final outbut buffer with rgba pixels

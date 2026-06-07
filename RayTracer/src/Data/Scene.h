@@ -11,6 +11,7 @@ struct TriangleOBJ
 {
 	std::vector<glm::vec3> Vertices;
 	std::vector<glm::vec3> Normals;
+	std::vector<glm::vec4> Tangents;
 	std::vector<glm::vec2> TCoords;
 	glm::vec3 Center;
 	int MaterialIndex = -1;
@@ -24,6 +25,9 @@ struct TriangleOptimized
 	glm::vec3 normal0;
 	glm::vec3 normal1;
 	glm::vec3 normal2;
+	glm::vec4 tangent0;
+	glm::vec4 tangent1;
+	glm::vec4 tangent2;
 	glm::vec2 uv0;
 	glm::vec2 uv1;
 	glm::vec2 uv2;
@@ -51,6 +55,7 @@ struct Material {
 	// Textures
 	Texture TexDiffuse;
 	Texture TexSpecular;
+	Texture TexNormal;
 };
 
 struct Scene {

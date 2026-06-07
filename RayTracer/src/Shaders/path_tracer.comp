@@ -22,17 +22,19 @@ layout(set = 0, binding = 5) readonly buffer buf_mats { float mats[]; };
 layout(set = 0, binding = 6) readonly buffer buf_textures { vec4 textures[]; };
 // Diffuse
 layout(set = 0, binding = 7) readonly buffer buf_texturesDiffuseIndices { int textures_diffuseIdx[]; };
+// Normals
+layout(set = 0, binding = 8) readonly buffer buf_texturesNormalIndices { int textures_normalIdx[]; };
 // Specular
-layout(set = 0, binding = 8) readonly buffer buf_texturesSpecularIndices { int textures_specularIdx[]; };
+layout(set = 0, binding = 9) readonly buffer buf_texturesSpecularIndices { int textures_specularIdx[]; };
 
 
 // hdri
-layout(rgba32f, binding = 9) readonly uniform image2D hdri_image;
-layout(set = 0, binding = 10) readonly buffer buf_hdri_cdf { float hdri_cdf[]; };
+layout(rgba32f, binding = 10) readonly uniform image2D hdri_image;
+layout(set = 0, binding = 11) readonly buffer buf_hdri_cdf { float hdri_cdf[]; };
 
 // Output image
-layout(set = 0, binding = 11) buffer buf_img_accu { vec4 img_accu[]; };
-layout(set = 0, binding = 12) writeonly buffer buf_img_out { vec4 img_out[]; };
+layout(set = 0, binding = 12) buffer buf_img_accu { vec4 img_accu[]; };
+layout(set = 0, binding = 13) writeonly buffer buf_img_out { vec4 img_out[]; };
 
 
 
@@ -187,8 +189,31 @@ void main() {
                 continue;
             }
 
+
+            // 1. Decode normals and ensure they are aligned correctly
+            hitInfo.normal = GetHitNormal(mat, hitInfo);
+            if (dot(hitInfo.geometryNormal, -ray.Direction) < 0.0f) hitInfo.geometryNormal = -hitInfo.geometryNormal;
+            if (dot(hitInfo.geometryNormal, hitInfo.normal) < 0.0f) hitInfo.normal = -hitInfo.normal;
+
+            // --- SHADING NORMAL FIX (Terminator Problem) ---
+            // Gently bend the shading normal towards the view vector to ensure NoV is never near 0 or negative
+            vec3 V = -ray.Direction;
+            float NoV = dot(hitInfo.normal, V);
+            if (NoV < 0.2) { // Threshold for silhouette bending
+                hitInfo.normal = normalize(hitInfo.normal + V * (0.2 - NoV));
+            }
+
+            // Recalculate cosTheta safely after normal bending
+            float cosTheta = max(dot(V, hitInfo.normal), 1e-4);
+
             mat.Specular = GetSpecularColor(mat, hitInfo); // Get the specular color for this material, either specular texture or material Specularity
             mat.Roughness = max(1e-4, (1.0 - mat.Specular.r) * mat.Roughness);
+
+            // Schlick's approximation for Fresnel factor.
+            vec3 F0 = mix(vec3(0.04), mat.Albedo.rgb, mat.Metallic);
+            vec3 Fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
+            float FresnelMax = clamp(max(Fresnel.r, max(Fresnel.g, Fresnel.b)), 0.0, 1.0);
+
 
             // Step 1: Accumulate emitted light first (Self-emission does not depend on throughput)
             accumulatedColor += mat.Emission.rgb * throughput;
@@ -201,12 +226,13 @@ void main() {
             if (directLight.w > 0.0){
                 // Compute the cosine term between the surface normal and the sampled direction.
                 float cosEnv = max(dot(hitInfo.normal, lightDir), 0.0);
+                vec3 halfLightVec = normalize(-ray.Direction + lightDir);
 
                 // Evaluate the BSDF for the direct light sample.
-                vec3 brdfEval = evaluateBRDF(ray.Direction, hitInfo.normal, lightDir, mat);
+                vec3 brdfEval = evaluateBRDF(ray.Direction, hitInfo.normal, lightDir, cosTheta, halfLightVec, mat);
 
                 // Also, evaluate the BSDF's PDF for the same direction.
-                float bsdfPdf = evaluateBSDFPdf(ray.Direction, hitInfo.normal, lightDir, mat);
+                float bsdfPdf = evaluateBSDFPdf(ray.Direction, hitInfo.normal, lightDir, FresnelMax, halfLightVec, mat);
 
                 // Compute the MIS weight (using a balance heuristic).
                 float misWeight =  (directLight.w + bsdfPdf + 1e-4);
@@ -215,29 +241,31 @@ void main() {
                 accumulatedColor += throughput *  directLight.rgb * brdfEval * cosEnv / misWeight;
             }
 
-
+            if (i == camdata.bounces - 1) break;
 
             // Sample the BRDF to get the next ray direction.
-            BRDFSample brdfSample = sampleBRDF(ray.Direction, hitInfo.normal, mat, randomSeed);
+            BRDFSample brdfSample = sampleBRDF(ray.Direction, hitInfo.normal, 
+                Fresnel, FresnelMax, cosTheta, 
+                mat, randomSeed);
             float cosine = max(dot(brdfSample.direction, hitInfo.normal ), 0.0);
 
             // Update the throughput with the BRDF value, cosine term, and pdf.
             throughput *= brdfSample.value * cosine / brdfSample.pdf;
 
             // New ray origin offset from last hit position along surface normal
-            ray.Origin = hitInfo.position + hitInfo.normal * FLT_EPSILON * 2.0;
+            ray.Origin = hitInfo.position + hitInfo.geometryNormal * 1e-3 + brdfSample.direction * 1e-4;
             ray.Direction = brdfSample.direction;
 
 
             // Russian Roulette
             // As the throughput gets smaller, the ray is more likely to get terminated early.
             // Survivors have their value boosted to make up for fewer samples being in the average.     
-            float p = max(throughput.r, max(throughput.g, throughput.b));
+            float p = luminance(throughput);
             if (RandomValue(randomSeed) > p)
                 break;
 
             // Add the energy we 'lose' by randomly terminating paths
-            throughput *= 1.0f / p;
+            throughput /= p;
         }
     }
     else{
@@ -250,7 +278,10 @@ void main() {
         else{
             // Get the color for this material, either diffuse texture lookup or material albedo
             Material mat = GetMaterial(hitInfo.materialIndex);
-            accumulatedColor = GetAlbedoColor(mat, hitInfo).rgb;
+            //accumulatedColor = GetAlbedoColor(mat, hitInfo).rgb;
+            //accumulatedColor = 0.5 * (hitInfo.tangent + normalize(vec3(1)));
+            vec3 hitNormal = 0.5 *  (GetHitNormal(mat, hitInfo) + 1.0);
+            accumulatedColor = hitNormal;
         }
     }
     

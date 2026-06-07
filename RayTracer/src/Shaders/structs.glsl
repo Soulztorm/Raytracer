@@ -12,7 +12,6 @@ struct BoundingBox
 
 struct Node
 {
-	BoundingBox boundingBox;
 	int index;
 	int triangleCount;
 };
@@ -20,6 +19,8 @@ struct Node
 struct HitInfo {
 	vec3 position;
 	vec3 normal;
+	vec3 geometryNormal;
+	vec4 tangent;
     vec2 uv;
 	int materialIndex;
 };
@@ -39,6 +40,9 @@ struct TriangleOptimized
 	vec3 n0;
 	vec3 n1;
 	vec3 n2;
+	vec4 t0;
+	vec4 t1;
+	vec4 t2;
 	vec2 uv0;
 	vec2 uv1;
 	vec2 uv2;
@@ -61,7 +65,7 @@ struct Material {
 // --------------------------------------------
 
 TriangleOptimized GetTriangleOptimized(uint triIndex){
-    uint triOffset = 24 * triIndex;
+    uint triOffset = 36 * triIndex;
 
     vec3 v0 = vec3(
     tris_opt[triOffset],
@@ -93,20 +97,39 @@ TriangleOptimized GetTriangleOptimized(uint triIndex){
     tris_opt[triOffset + 16],
     tris_opt[triOffset + 17]);
 
-    
-    vec2 uv0 = vec2(
-    tris_opt[triOffset + 18],
-    tris_opt[triOffset + 19]);
 
-    vec2 uv1 = vec2(
+    vec4 t0 = vec4(
+    tris_opt[triOffset + 18],
+    tris_opt[triOffset + 19],
     tris_opt[triOffset + 20],
     tris_opt[triOffset + 21]);
 
-    vec2 uv2 = vec2(
+    vec4 t1 = vec4(
     tris_opt[triOffset + 22],
-    tris_opt[triOffset + 23]);
+    tris_opt[triOffset + 23],
+    tris_opt[triOffset + 24],
+    tris_opt[triOffset + 25]);
 
-    return TriangleOptimized(v0, e1, e2, n0, n1, n2, uv0, uv1, uv2);
+    vec4 t2 = vec4(
+    tris_opt[triOffset + 26],
+    tris_opt[triOffset + 27],
+    tris_opt[triOffset + 28],
+    tris_opt[triOffset + 29]);
+
+    
+    vec2 uv0 = vec2(
+    tris_opt[triOffset + 30],
+    tris_opt[triOffset + 31]);
+
+    vec2 uv1 = vec2(
+    tris_opt[triOffset + 32],
+    tris_opt[triOffset + 33]);
+
+    vec2 uv2 = vec2(
+    tris_opt[triOffset + 34],
+    tris_opt[triOffset + 35]);
+
+    return TriangleOptimized(v0, e1, e2, n0, n1, n2, t0, t1, t2, uv0, uv1, uv2);
 }
 
 
@@ -157,7 +180,6 @@ BoundingBox GetNodeBB(uint nodeIndex){
 
 Node GetNode(int nodeIndex){
     Node node;
-    node.boundingBox = GetNodeBB(nodeIndex);
     node.index = nodes_index_tricount[nodeIndex*2];
     node.triangleCount = nodes_index_tricount[nodeIndex*2 + 1];
     return node;

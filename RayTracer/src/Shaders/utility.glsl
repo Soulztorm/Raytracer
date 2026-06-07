@@ -4,7 +4,7 @@
 
 
 #define FLT_MAX 3.402823466e+38
-#define FLT_EPSILON 0.00001
+#define FLT_EPSILON 0.0001
 
 
 // ==============================================================
@@ -29,6 +29,11 @@ vec3 LinearToSRGB(vec3 color) {
         color * 12.92,
         lessThan(color, vec3(0.0031308))
     );
+}
+
+float luminance(vec3 rgb)
+{
+	return dot(rgb, vec3(0.2126, 0.7152, 0.0722));
 }
 
 // ==============================================================
@@ -104,6 +109,32 @@ vec4 GetAlbedoColor(in Material mat, in HitInfo hitInfo){
     }
     return albedoColor;
 }
+
+vec3 GetHitNormal(in Material mat, in HitInfo hitInfo){
+    vec3 normal = hitInfo.normal;
+    int texIndex = textures_normalIdx[hitInfo.materialIndex*3];
+    if (texIndex >= 0){
+        // Fetch pixel from normal map
+        int texWidth = textures_normalIdx[hitInfo.materialIndex*3 + 1];
+        int texHeight = textures_normalIdx[hitInfo.materialIndex*3 + 2];
+        int px_x = int(hitInfo.uv.x * (texWidth-1));
+        int px_y = int((1.0 - hitInfo.uv.y) * (texHeight-1));
+        int px_idx = texIndex + (px_y * texWidth + px_x);
+
+        // Transform from 0-1 to -1-1
+        //vec3 localNormal = normalize(vec3((2.0 * textures[px_idx].r) - 1.0, (2.0 * textures[px_idx].g) - 1.0, (2.0 * textures[px_idx].b) - 1.0));
+        vec3 localNormal = (2.0 * textures[px_idx].rgb) - 1.0;
+        
+        mat3 TBN = mat3(
+            hitInfo.tangent.xyz,
+            cross(hitInfo.normal, hitInfo.tangent.xyz) * hitInfo.tangent.w,
+            hitInfo.normal);
+
+        normal = normalize(TBN * localNormal);
+    }
+    return normal;
+}
+
 
 
 vec4 GetSpecularColor(in Material mat, in HitInfo hitInfo){
@@ -201,6 +232,27 @@ vec4 SampleHDRIFromDirection(in vec3 worldDir)
 
 
 
+
+// Clever offset_ray function from Ray Tracing Gems chapter 6
+// Offsets the ray origin from current position p, along normal n (which must be geometric normal)
+// so that no self-intersection can occur.
+vec3 offsetRay(in vec3 p, vec3 n)
+{
+	float origin = 1.0 / 32.0;
+	float float_scale = 1.0 / 65536.0;
+	float int_scale = 256.0;
+
+	ivec3 of_i = ivec3(int(int_scale * n.x), int(int_scale * n.y), int(int_scale * n.z));
+
+	vec3 p_i = vec3(
+		float(int(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+		float(int(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+		float(int(p.z) + ((p.z < 0) ? -of_i.z : of_i.z)));
+
+	return vec3(abs(p.x) < origin ? p.x + float_scale * n.x : p_i.x,
+		abs(p.y) < origin ? p.y + float_scale * n.y : p_i.y,
+		abs(p.z) < origin ? p.z + float_scale * n.z : p_i.z);
+}
 
 
 

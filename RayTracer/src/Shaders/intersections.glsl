@@ -71,6 +71,7 @@ HitInfo IntersectRay(in Ray ray)
 	nodeStack[stackIndex++] = 0;
     
     vec3 n0, n1, n2; 
+    vec4 t0, t1, t2; 
     vec2 uv0, uv1, uv2; 
 
 	while (stackIndex > 0) {
@@ -93,6 +94,10 @@ HitInfo IntersectRay(in Ray ray)
                     n0 = tri.n0;
                     n1 = tri.n1;
                     n2 = tri.n2;
+
+                    t0 = tri.t0;
+                    t1 = tri.t1;
+                    t2 = tri.t2;
 
                     uv0 = tri.uv0;
                     uv1 = tri.uv1;
@@ -120,7 +125,7 @@ HitInfo IntersectRay(in Ray ray)
 	}
 	
 
-	HitInfo returnHit = HitInfo(vec3(0), vec3(0), vec2(0), -1);
+	HitInfo returnHit = HitInfo(vec3(0), vec3(0), vec3(0), vec4(0), vec2(0), -1);
 
 
 	//If we hit something, work out the position, normal and material
@@ -128,8 +133,15 @@ HitInfo IntersectRay(in Ray ray)
         returnHit.materialIndex = tris_mats[hitInfo.triIndex];
 		returnHit.position = ray.Origin + ray.Direction * hitInfo.dist;
         float w = (1.0 - hitInfo.u - hitInfo.v);
-        returnHit.normal = w * n0 + hitInfo.u * n1 + hitInfo.v * n2;
+        returnHit.normal = normalize(w * n0 + hitInfo.u * n1 + hitInfo.v * n2);
+        returnHit.tangent = vec4(normalize(w * t0.xyz + hitInfo.u * t1.xyz + hitInfo.v * t2.xyz), t0.w);
         returnHit.uv = fract(w * uv0 + hitInfo.u * uv1 + hitInfo.v * uv2);
+
+
+		uint triOffset = 36 * hitInfo.triIndex;
+		returnHit.geometryNormal = normalize(cross(
+			vec3(tris_opt[triOffset + 3], tris_opt[triOffset + 4], tris_opt[triOffset + 5]), 
+			vec3(tris_opt[triOffset + 6], tris_opt[triOffset + 7], tris_opt[triOffset + 8])));
 	}
 
 	return returnHit;

@@ -19,7 +19,11 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "Utils/tiny_obj_loader.h"
 
+#define TINYGLTF_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+
 #include "stb_image.h"
+#include "tiny_gltf.h"
 
 #include <filesystem>
 #define fs std::filesystem
@@ -57,7 +61,7 @@ private:
 	Total total_{ 0 };
 };
 
-bool tryLoadTexture(Texture& texture, const std::string& texName, const std::string& texFolder) {
+bool tryLoadTexture(Texture& texture, const std::string& texName, const std::string& texFolder, bool flipY = false) {
 	if (texName.empty())
 		return false;
 
@@ -75,6 +79,8 @@ bool tryLoadTexture(Texture& texture, const std::string& texName, const std::str
 	for (int i = 0; i < w * h; i++) {
 		float r = glm::clamp(static_cast<float>(data[i * 4]) / 255.0f, 0.0f, 1.0f);
 		float g = glm::clamp(static_cast<float>(data[i * 4 + 1]) / 255.0f, 0.0f, 1.0f);
+		if (flipY)
+			g = 1.0f - g;
 		float b = glm::clamp(static_cast<float>(data[i * 4 + 2]) / 255.0f, 0.0f, 1.0f);
 		float a = glm::clamp(static_cast<float>(data[i * 4 + 3]) / 255.0f, 0.0f, 1.0f);
 		texture.data.emplace_back(r, g, b, a);
@@ -94,8 +100,30 @@ public:
 
 		LoadSettings();
 
-		//m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
-		m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
+
+
+
+
+		//tinygltf::Model model;
+		//tinygltf::TinyGLTF loader;
+		//std::string err;
+		//std::string warn;
+
+		//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, "../Assets/sponza-scene/source/glTF/Sponza.gltf");
+		////bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, "../Assets/sponza-scene/source/glTF/Sponza.gltf"); // for binary glTF(.glb)
+
+		//model.meshes[0].primitives[0].
+		//if (!warn.empty()) {
+		//	printf("Warn: %s\n", warn.c_str());
+		//}
+
+
+
+
+
+
+		m_scene.hdri.LoadFromFile("../Assets/hdri/pretoria_gardens_4k.exr");
+		//m_scene.hdri.LoadFromFile("../Assets/hdri/rosendal_plains_2_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/rogland_clear_night_4k.exr");
 		//m_scene.hdri.LoadFromFile("../Assets/hdri/qwantani_sunrise_4k.exr");
 
@@ -106,8 +134,8 @@ public:
 #define SCENE 3
 
 #if SCENE == 0
-		//objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
-		objPath = ("../Assets/cornell-box/CornellBox-Sphere.obj");
+		objPath = ("../Assets/cornell-box/CornellBox-Water2.obj");
+		//objPath = ("../Assets/cornell-box/CornellBox-Sphere.obj");
 #elif SCENE == 1
 		objPath = ("../Assets/fireplace_room/fireplace_room.obj");
 #elif SCENE == 2
@@ -149,6 +177,8 @@ public:
 				
 				// Diffuse Texture
 				tryLoadTexture(mat.TexDiffuse, _mat.diffuse_texname, objPath.parent_path().string());
+				// Normal Texture
+				tryLoadTexture(mat.TexNormal, _mat.bump_texname, objPath.parent_path().string(), true);
 				// Specular Texture
 				tryLoadTexture(mat.TexSpecular, _mat.specular_texname, objPath.parent_path().string());
 			}
@@ -202,6 +232,38 @@ public:
 						// tinyobj::real_t green = attrib.colors[3*size_t(idx.vertex_index)+1];
 						// tinyobj::real_t blue  = attrib.colors[3*size_t(idx.vertex_index)+2];
 					}
+
+					// Compute tangents, needs tcoords
+					if (tri.Normals.size() >= 3 && tri.TCoords.size() >= 3) {
+						tri.Tangents.resize(3);
+
+						glm::vec3 e1 = tri.Vertices[1] - tri.Vertices[0];
+						glm::vec3 e2 = tri.Vertices[2] - tri.Vertices[0];
+
+						glm::vec2 deltaUV1 = tri.TCoords[1] - tri.TCoords[0];
+						glm::vec2 deltaUV2 = tri.TCoords[2] - tri.TCoords[0];
+
+						float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+						glm::vec3 faceTangent = f * (deltaUV2.y * e1 - deltaUV1.y * e2);
+						glm::vec3 faceBitangent = f * (-deltaUV2.x * e1 + deltaUV1.x * e2);
+
+						glm::vec3 t0 = glm::normalize(faceTangent - tri.Normals[0] * glm::dot(tri.Normals[0], faceTangent));
+						glm::vec3 b0 = glm::cross(tri.Normals[0], t0);
+						float h0 = (glm::dot(b0, faceBitangent) < 0.0) ? -1.0 : 1.0;
+
+						glm::vec3 t1 = glm::normalize(faceTangent - tri.Normals[1] * glm::dot(tri.Normals[1], faceTangent));
+						glm::vec3 b1 = glm::cross(tri.Normals[1], t1);
+						float h1 = (glm::dot(b1, faceBitangent) < 0.0) ? -1.0 : 1.0;
+
+						glm::vec3 t2 = glm::normalize(faceTangent - tri.Normals[2] * glm::dot(tri.Normals[2], faceTangent));
+						glm::vec3 b2 = glm::cross(tri.Normals[2], t2);
+						float h2 = (glm::dot(b2, faceBitangent) < 0.0) ? -1.0 : 1.0;
+
+						tri.Tangents[0] = glm::vec4(t0, h0);
+						tri.Tangents[1] = glm::vec4(t1, h1);
+						tri.Tangents[2] = glm::vec4(t2, h2);
+					}
+
 
 					tri.Center = avg_centroid / 3.0f;
 

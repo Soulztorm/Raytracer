@@ -51,44 +51,39 @@ void RendererGPU::CreateMaterialBuffer()
 		m_buf_materials = m_kp_manager.tensor(materialArray);
 }
 
+bool FillTextureBuffer(const Texture& texture, std::vector<float>* textureArray, std::vector<int>& textureIndexArray, int materialIndex, int& currentTexturePtr) {
+	if (texture.data.empty())
+		return false;
+
+	int texSize = texture.width * texture.height;
+	for (int d = 0; d < texSize; d++) {
+		textureArray->push_back(texture.data[d].r);
+		textureArray->push_back(texture.data[d].g);
+		textureArray->push_back(texture.data[d].b);
+		textureArray->push_back(texture.data[d].a);
+	}
+	textureIndexArray[materialIndex * 3] = currentTexturePtr;
+	textureIndexArray[materialIndex * 3 + 1] = texture.width;
+	textureIndexArray[materialIndex * 3 + 2] = texture.height;
+
+	currentTexturePtr += texSize;
+}
+
 void RendererGPU::CreateTextureBuffers()
 {
 	std::vector<float> textureArray;
 	std::vector<int> textureDiffuseIndexArray(m_activeScene->materials.size() * 3, -1);
+	std::vector<int> textureNormalIndexArray(m_activeScene->materials.size() * 3, -1);
 	std::vector<int> textureSpecularIndexArray(m_activeScene->materials.size() * 3, -1);
 
 	int currentTexPtr = 0;
 	for (int i = 0; i < m_activeScene->materials.size(); i++) {
 		const Material& mat = m_activeScene->materials[i];
 
-		if (!mat.TexDiffuse.data.empty()) {
-			int texSizeDiffuse = mat.TexDiffuse.width * mat.TexDiffuse.height;
-			for (int d = 0; d < texSizeDiffuse; d++) {
-				textureArray.push_back(mat.TexDiffuse.data[d].r);
-				textureArray.push_back(mat.TexDiffuse.data[d].g);
-				textureArray.push_back(mat.TexDiffuse.data[d].b);
-				textureArray.push_back(mat.TexDiffuse.data[d].a);
-			}
-			textureDiffuseIndexArray[i * 3] = currentTexPtr;
-			textureDiffuseIndexArray[i * 3 + 1] = mat.TexDiffuse.width;
-			textureDiffuseIndexArray[i * 3 + 2] = mat.TexDiffuse.height;
 
-			currentTexPtr += texSizeDiffuse;
-		}
-		if (!mat.TexSpecular.data.empty()) {
-			int texSizeSpecular = mat.TexSpecular.width * mat.TexSpecular.height;
-			for (int d = 0; d < texSizeSpecular; d++) {
-				textureArray.push_back(mat.TexSpecular.data[d].r);
-				textureArray.push_back(mat.TexSpecular.data[d].g);
-				textureArray.push_back(mat.TexSpecular.data[d].b);
-				textureArray.push_back(mat.TexSpecular.data[d].a);
-			}
-			textureSpecularIndexArray[i * 3] = currentTexPtr;
-			textureSpecularIndexArray[i * 3 + 1] = mat.TexSpecular.width;
-			textureSpecularIndexArray[i * 3 + 2] = mat.TexSpecular.height;
-
-			currentTexPtr += texSizeSpecular;
-		}
+		FillTextureBuffer(mat.TexDiffuse, &textureArray, textureDiffuseIndexArray, i, currentTexPtr);
+		FillTextureBuffer(mat.TexNormal, &textureArray, textureNormalIndexArray, i, currentTexPtr);
+		FillTextureBuffer(mat.TexSpecular, &textureArray, textureSpecularIndexArray, i, currentTexPtr);
 	}
 
 	if (textureArray.empty())
@@ -96,6 +91,7 @@ void RendererGPU::CreateTextureBuffers()
 
 	m_buf_textures = m_kp_manager.tensor(textureArray);
 	m_buf_textureDiffuseIndices = m_kp_manager.tensorT<int>(textureDiffuseIndexArray);
+	m_buf_textureNormalIndices = m_kp_manager.tensorT<int>(textureNormalIndexArray);
 	m_buf_textureSpecularIndices = m_kp_manager.tensorT<int>(textureSpecularIndexArray);
 }
 
@@ -120,12 +116,12 @@ void RendererGPU::FillBuffers() {
 
 	// Fill triangle buffer
 	std::vector<TriangleOptimized>* trisOpt = m_activeBVH->GetTrisOpt();
-	std::vector<float> triOptArray(trisOpt->size() * 24);
+	std::vector<float> triOptArray(trisOpt->size() * 36);
 	//std::vector<float> triNormalArray(trisOpt->size() * 9);
 	std::vector<int> triMatsArray(trisOpt->size());
 	for (int i = 0; i < trisOpt->size(); i++) {
 		TriangleOptimized t = trisOpt->at(i);
-		memcpy(&(triOptArray[i * 24]), &t, 6 * sizeof(glm::vec3) + 3 * sizeof(glm::vec2));
+		memcpy(&(triOptArray[i * 36]), &t, 6 * sizeof(glm::vec3) + 3 * sizeof(glm::vec2) + 3 * sizeof(glm::vec4));
 		//memcpy(&(triNormalArray[i * 9]), &(t.normal0), 3 * sizeof(glm::vec3));
 		triMatsArray[i] = t.materialIndex;
 	}
@@ -166,7 +162,7 @@ void RendererGPU::FillBuffers() {
 		m_buf_tris_opt,
 		m_buf_tris_mats, m_buf_materials,
 		m_buf_textures, 
-		m_buf_textureDiffuseIndices, m_buf_textureSpecularIndices,
+		m_buf_textureDiffuseIndices, m_buf_textureNormalIndices, m_buf_textureSpecularIndices,
 		m_buf_hdri, m_buf_hdri_cdf });
 }
 
@@ -209,7 +205,7 @@ bool RendererGPU::OnResize(uint32_t width, uint32_t height)
 			//m_buf_tris_opt, m_buf_tris_normals, 
 			m_buf_tris_mats, m_buf_materials,
 			m_buf_textures, 
-			m_buf_textureDiffuseIndices, m_buf_textureSpecularIndices,
+			m_buf_textureDiffuseIndices, m_buf_textureNormalIndices, m_buf_textureSpecularIndices,
 			m_buf_hdri, m_buf_hdri_cdf,
 			m_buf_imgAccu, m_buf_imgOut
 		};

@@ -16,6 +16,13 @@ float smithG(vec3 v, vec3 l, vec3 n, float roughness) {
     return smithG1(v, n, roughness) * smithG1(l, n, roughness);
 }
 
+float V_SmithGGXCorrelated(float NoV, float NoL, float alpha) {
+    float alpha2 = alpha * alpha;
+    float GGXV = NoL * sqrt(NoV * NoV * (1.0 - alpha2) + alpha2);
+    float GGXL = NoV * sqrt(NoL * NoL * (1.0 - alpha2) + alpha2);
+    return 0.5 / (GGXV + GGXL + 1e-4);
+}
+
 // Returns the GGX normal distribution value for a given half-vector 'h',
 // surface normal 'n', and roughness parameter 'roughness'.
 // The roughness is converted to an alpha value by squaring it.
@@ -76,23 +83,15 @@ struct BRDFSample {
     float pdf;       // The probability density for the sampled direction.
 };
 
-BRDFSample sampleBRDF(vec3 incident, vec3 normal, Material mat, inout uint randomSeed) {
+BRDFSample sampleBRDF(vec3 incident, vec3 normal, vec3 Fresnel, float FresnelMax, float cosTheta, Material mat, inout uint randomSeed) {
     BRDFSample brdfSample;
-
-    // Compute the base reflectivity F0:
-    // For dielectrics use a constant (e.g., 0.04), for metals use the albedo.
-    vec3 F0 = mix(vec3(0.04), mat.Albedo.rgb, mat.Metallic);
-
-    // Schlick's approximation for Fresnel factor.
-    float cosTheta = max(dot(-incident, normal), 0.0);
-    vec3 Fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
 
     // For metallic materials, force specular branch (i.e. probability 1).
     // Use the maximum channel of Fresnel as the probability to choose the specular branch.
     float specularProbability = 
         mat.Metallic > 0.0
         ? 1.0 
-        : mat.Specular.r * clamp(max(Fresnel.r, max(Fresnel.g, Fresnel.b)), 0.0, 1.0);
+        : mat.Specular.r * FresnelMax;
 
     // If the random number falls in the specular range, or the material is metallic,
     // sample the specular component. Otherwise, sample the diffuse component.
@@ -103,12 +102,15 @@ BRDFSample sampleBRDF(vec3 incident, vec3 normal, Material mat, inout uint rando
 
         // Reflect the incident ray about the half-vector
         vec3 reflected = reflect(incident, halfVec);
-        if (dot(reflected, normal) < 0.0)
-            reflected = -reflected;  // keep the reflection above the surface
-
         // Compute dot products needed:
-        float NdotV = max(dot(normal, -incident), 0.0);
         float NdotL = max(dot(normal, reflected), 0.0);
+
+        // If the ray points inside the mesh, mirror it back above the surface
+        if (NdotL < 0.0) {
+            reflected = normalize(reflected - 2.0 * NdotL * normal);
+            NdotL = max(dot(normal, reflected), 0.0); // Recalculate NdotL safely
+        }
+
         float NdotH = max(dot(normal, halfVec), 0.0);
         float VdotH = max(dot(-incident, halfVec), 0.0);
 
@@ -116,13 +118,17 @@ BRDFSample sampleBRDF(vec3 incident, vec3 normal, Material mat, inout uint rando
         float alpha = mat.Roughness * mat.Roughness;
 
         // GGX normal distribution D(h)
-        float D = GGX_Distribution(halfVec, normal, mat.Roughness);
+        float D = GGX_Distribution(halfVec, normal, alpha);
 
         // Smith's geometry term G(v, l)
-        float G = smithG(-incident, reflected, normal, mat.Roughness);
+        float V = V_SmithGGXCorrelated(cosTheta, NdotL, alpha);
 
-        float denominator = 4.0 * (NdotV * NdotL + 1e-4);
-        vec3 specularBRDF = (D * Fresnel * G) / denominator;
+       // Calculate Fresnel dynamically using VdotH
+        vec3 F0 = mix(vec3(0.04), mat.Albedo.rgb, mat.Metallic);
+        vec3 Fresnel_VH = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
+
+        // Use this new Fresnel for the BRDF evaluation
+        vec3 specularBRDF = D * Fresnel_VH * V;
 
         // Compute PDF for reflection
         // Typically: pdf = [ D * NdotH ] / [4 * VdotH] for half-vector sampling
@@ -143,7 +149,10 @@ BRDFSample sampleBRDF(vec3 incident, vec3 normal, Material mat, inout uint rando
         vec3 diffuseBRDF = mat.Albedo.rgb * PI1;
 
         brdfSample.direction = diffuseDir;
-        brdfSample.value = diffuseBRDF;
+        //brdfSample.value = diffuseBRDF;
+        // Divide by the probability of taking the diffuse branch (1.0 - specularProbability)
+        brdfSample.value = diffuseBRDF / max(1.0 - specularProbability, 1e-4);
+
         brdfSample.pdf = pdf;
     }
 
@@ -155,38 +164,31 @@ BRDFSample sampleBRDF(vec3 incident, vec3 normal, Material mat, inout uint rando
 
 
 
-vec3 evaluateBRDF(vec3 incident, vec3 normal, vec3 outDir, Material mat) {
+vec3 evaluateBRDF(vec3 incident, vec3 normal, vec3 outDir, float cosTheta, vec3 halfLightVec, Material mat) {
     // Convert the incident ray direction (from the camera) to a view direction.
-    vec3 v = -incident; // view direction
-    vec3 l = outDir;    // light direction
-
-    float NoV = max(dot(normal, v), 0.0);
-    float NoL = max(dot(normal, l), 0.0);
-    if (NoV <= 0.0 || NoL <= 0.0)
+    float NoL = max(dot(normal, outDir), 0.0);
+    if (cosTheta <= 0.0 || NoL <= 0.0)
         return vec3(0.0);
 
     // Compute the half vector between view and light directions.
-    vec3 h = normalize(v + l);
-    float NoH = max(dot(normal, h), 0.0);
-    float VoH = max(dot(v, h), 0.0);
+    float VoH = max(dot(-incident, halfLightVec), 0.0);
 
     // --- Specular Component ---
     // Convert roughness to alpha (often alpha = roughness^2).
-    float roughness = mat.Roughness;
-    float alpha = roughness * roughness;
+    float alpha = mat.Roughness * mat.Roughness;
     
     // Microfacet normal distribution (GGX/Trowbridge-Reitz)
-    float D = GGX_Distribution(h, normal, roughness);
+    float D = GGX_Distribution(halfLightVec, normal, alpha);
     
-    // Geometry term using the Smith formulation.
-    float G = smithG(v, l, normal, roughness);
-    
+    // Use the Correlated Visibility function to match sampleBRDF
+    float V = V_SmithGGXCorrelated(cosTheta, NoL, alpha);
+
     // Fresnel term using Schlick's approximation.
     vec3 F0 = mix(vec3(0.04), mat.Albedo.rgb, mat.Metallic);
-    vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VoH, 5.0);
+    vec3 Fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - VoH, 5.0);
     
-    // Specular BRDF term.
-    vec3 specular = (D * F * G) / (4.0 * NoV * NoL + 1e-4);
+    // Specular BRDF term (V handles the division!)
+    vec3 specular = D * Fresnel * V;
 
     // --- Diffuse Component ---
     // For non-metal materials, include a diffuse term.
@@ -206,32 +208,23 @@ vec3 evaluateBRDF(vec3 incident, vec3 normal, vec3 outDir, Material mat) {
 // Evaluate the probability density (PDF) for sampling a given outgoing direction 'outDir'
 // given the incident direction (from the camera) 'incident', the surface 'normal',
 // and the material properties in 'mat'.
-float evaluateBSDFPdf(vec3 incident, vec3 normal, vec3 outDir, Material mat) {
+float evaluateBSDFPdf(vec3 incident, vec3 normal, vec3 outDir, float FresnelMax, vec3 halfLightVec, Material mat) {
     // Convert the incident ray direction into the incoming light direction.
     // (Assuming 'incident' is the ray direction from the camera, so the actual incoming direction is -incident.)
-    vec3 wi = -incident;
-    // Compute the cosine of the angle between the incoming light and the surface normal.
-    float cosIncident = max(dot(wi, normal), 0.0);
 
-    // Compute the base reflectivity F0. For dielectrics, use a default (e.g., 0.04), and for metals use the albedo.
-    vec3 F0 = mix(vec3(0.04), mat.Albedo.rgb, mat.Metallic);
-    // Schlick's approximation for the Fresnel term.
-    vec3 Fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - cosIncident, 5.0);
     // Use the maximum channel as the probability to choose the specular branch.
-    float specProb = clamp(max(Fresnel.r, max(Fresnel.g, Fresnel.b)), 0.0, 1.0);
+    float specProb = FresnelMax;
 
     // --- Diffuse PDF ---
     // For cosine-weighted hemisphere sampling, the PDF is: pdf = cos(theta) / PI.
     float pdf_diff = max(dot(outDir, normal), 0.0) / PI;
 
     // --- Specular PDF ---
-    // Compute the half vector between the incoming and outgoing directions.
-    vec3 halfVec = normalize(wi + outDir);
     // Calculate the GGX normal distribution function for the half vector.
-    float D = GGX_Distribution(halfVec, normal, mat.Roughness);
+    float D = GGX_Distribution(halfLightVec, normal, mat.Roughness);
     // Convert the half-vector PDF to the outgoing direction's PDF.
     // The factor 4 * dot(outDir, half) accounts for the change of variables.
-    float pdf_spec = D * max(dot(normal, halfVec), 0.0) / (4.0 * max(dot(outDir, halfVec), 0.0) + 1e-4);
+    float pdf_spec = D * max(dot(normal, halfLightVec), 0.0) / (4.0 * max(dot(outDir, halfLightVec), 0.0) + 1e-4);
 
     // If the material is metallic, the diffuse component is zero and only the specular branch is used.
     if (mat.Metallic > 0.0)
